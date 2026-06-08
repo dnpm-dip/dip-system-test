@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPattern": ".*/token.*"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "access_token": "mock-bfarm-token",
+      "token_type": "Bearer",
+      "expires_in": 3600
+    }
+  }
+}

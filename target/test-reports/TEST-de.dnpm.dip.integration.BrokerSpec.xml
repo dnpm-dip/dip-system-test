@@ -1,0 +1,49 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuite hostname="Jonas-ASUSZenBook-2026" name="de.dnpm.dip.integration.BrokerSpec" tests="1" errors="1" failures="0" skipped="0" time="1.216" timestamp="2026-06-08T16:40:15">
+          <properties>
+      <property name="java.specification.version" value="21"/><property name="sun.jnu.encoding" value="UTF-8"/><property name="sun.arch.data.model" value="64"/><property name="java.vendor.url" value="https://ubuntu.com/"/><property name="sun.boot.library.path" value="/usr/lib/jvm/java-21-openjdk-amd64/lib"/><property name="sun.java.command" value="/home/jonas/.cache/sbt/boot/sbt-launch/1.12.11/sbt-launch-1.12.11.jar clean test"/><property name="jdk.debug" value="release"/><property name="java.specification.vendor" value="Oracle Corporation"/><property name="java.version.date" value="2026-04-21"/><property name="java.home" value="/usr/lib/jvm/java-21-openjdk-amd64"/><property name="file.separator" value="/"/><property name="java.vm.compressedOopsMode" value="32-bit"/><property name="line.separator" value="
+"/><property name="java.vm.specification.vendor" value="Oracle Corporation"/><property name="java.specification.name" value="Java Platform API Specification"/><property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/><property name="java.runtime.version" value="21.0.11+10-1-25.10.2-Ubuntu"/><property name="user.name" value="jonas"/><property name="log4j.ignoreTCL" value="true"/><property name="file.encoding" value="UTF-8"/><property name="jnidispatch.path" value="/home/jonas/.cache/JNA/temp/jna10509945073497144530.tmp"/><property name="jna.loaded" value="true"/><property name="java.io.tmpdir" value="/tmp"/><property name="java.version" value="21.0.11"/><property name="java.vm.specification.name" value="Java Virtual Machine Specification"/><property name="native.encoding" value="UTF-8"/><property name="java.library.path" value="/usr/java/packages/lib:/usr/lib/x86_64-linux-gnu/jni:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/jni:/lib:/usr/lib"/><property name="stderr.encoding" value="UTF-8"/><property name="java.vendor" value="Ubuntu"/><property name="scala.ext.dirs" value="/home/jonas/.sbt/1.0/java9-rt-ext-ubuntu_21_0_11"/><property name="sun.io.unicode.encoding" value="UnicodeLittle"/><property name="java.class.path" value="/home/jonas/.cache/sbt/boot/sbt-launch/1.12.11/sbt-launch-1.12.11.jar"/><property name="java.vm.vendor" value="Ubuntu"/><property name="jline.shutdownhook" value="false"/><property name="user.timezone" value="Europe/Berlin"/><property name="java.vm.specification.version" value="21"/><property name="os.name" value="Linux"/><property name="sun.java.launcher" value="SUN_STANDARD"/><property name="user.country" value="US"/><property name="sun.cpu.endian" value="little"/><property name="user.home" value="/home/jonas"/><property name="user.language" value="en"/><property name="sbt.script" value="/usr/bin/sbt"/><property name="sbt.ipcsocket.tmpdir" value="/run/user/1000/.sbtfe5b6e69/ipcsocket"/><property name="swoval.tmpdir" value="/run/user/1000/.sbtfe5b6e69/swoval"/><property name="jline.esc.timeout" value="0"/><property name="stdout.encoding" value="UTF-8"/><property name="path.separator" value=":"/><property name="os.version" value="6.17.0-35-generic"/><property name="jna.nosys" value="true"/><property name="java.runtime.name" value="OpenJDK Runtime Environment"/><property name="java.vm.name" value="OpenJDK 64-Bit Server VM"/><property name="jna.platform.library.path" value="/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:/lib64:/usr/lib:/lib:/usr/lib/x86_64-linux-gnu/libfakeroot"/><property name="java.vendor.url.bug" value="https://bugs.launchpad.net/ubuntu/+source/openjdk-21"/><property name="user.dir" value="/home/jonas/workspaces/dip-system-test"/><property name="os.arch" value="amd64"/><property name="java.vm.info" value="mixed mode, sharing"/><property name="java.vm.version" value="21.0.11+10-1-25.10.2-Ubuntu"/><property name="java.class.version" value="65.0"/>
+    </properties>
+          <testcase classname="de.dnpm.dip.integration.BrokerSpec" name="(It is not a test it is a sbt.testing.SuiteSelector)" time="1.216">
+                      <error message="requirement failed: docker compose up failed (exit 1)" type="java.lang.IllegalArgumentException">java.lang.IllegalArgumentException: requirement failed: docker compose up failed (exit 1)
+	at scala.Predef$.require(Predef.scala:337)
+	at de.dnpm.dip.integration.DipTestEnvironment$.startStack(DipTestEnvironment.scala:38)
+	at de.dnpm.dip.integration.DipTestEnvironment$.ready$lzycompute(DipTestEnvironment.scala:30)
+	at de.dnpm.dip.integration.DipTestEnvironment$.ready(DipTestEnvironment.scala:29)
+	at de.dnpm.dip.integration.DipIntegrationSuite.beforeAll(DipIntegrationSuite.scala:21)
+	at de.dnpm.dip.integration.DipIntegrationSuite.beforeAll$(DipIntegrationSuite.scala:19)
+	at de.dnpm.dip.integration.BrokerSpec.beforeAll(BrokerSpec.scala:6)
+	at org.scalatest.BeforeAndAfterAll.liftedTree1$1(BeforeAndAfterAll.scala:212)
+	at org.scalatest.BeforeAndAfterAll.run(BeforeAndAfterAll.scala:210)
+	at org.scalatest.BeforeAndAfterAll.run$(BeforeAndAfterAll.scala:208)
+	at de.dnpm.dip.integration.BrokerSpec.run(BrokerSpec.scala:6)
+	at org.scalatest.tools.Framework.org$scalatest$tools$Framework$$runSuite(Framework.scala:321)
+	at org.scalatest.tools.Framework$ScalaTestTask.execute(Framework.scala:517)
+	at sbt.TestRunner.runTest$1(TestFramework.scala:153)
+	at sbt.TestRunner.run(TestFramework.scala:168)
+	at sbt.TestFramework$$anon$3$$anonfun$$lessinit$greater$1.$anonfun$apply$1(TestFramework.scala:336)
+	at sbt.TestFramework$.sbt$TestFramework$$withContextLoader(TestFramework.scala:296)
+	at sbt.TestFramework$$anon$3$$anonfun$$lessinit$greater$1.apply(TestFramework.scala:336)
+	at sbt.TestFramework$$anon$3$$anonfun$$lessinit$greater$1.apply(TestFramework.scala:336)
+	at sbt.TestFunction.apply(TestFramework.scala:348)
+	at sbt.Tests$.processRunnable$1(Tests.scala:475)
+	at sbt.Tests$.$anonfun$makeSerial$1(Tests.scala:481)
+	at sbt.std.Transform$$anon$3.$anonfun$apply$2(Transform.scala:47)
+	at sbt.std.Transform$$anon$4.work(Transform.scala:69)
+	at sbt.Execute.$anonfun$submit$2(Execute.scala:283)
+	at sbt.internal.util.ErrorHandling$.wideConvert(ErrorHandling.scala:24)
+	at sbt.Execute.work(Execute.scala:292)
+	at sbt.Execute.$anonfun$submit$1(Execute.scala:283)
+	at sbt.ConcurrentRestrictions$$anon$4.$anonfun$submitValid$1(ConcurrentRestrictions.scala:265)
+	at sbt.CompletionService$$anon$2.call(CompletionService.scala:65)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+</error>
+                    </testcase>
+          <system-out><![CDATA[]]></system-out>
+          <system-err><![CDATA[]]></system-err>
+        </testsuite>

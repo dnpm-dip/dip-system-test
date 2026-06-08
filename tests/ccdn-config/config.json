@@ -1,0 +1,22 @@
+{
+  "polling": {
+    "period": 5,
+    "timeUnit": "SECONDS"
+  },
+  "dataNodeIds": {
+    "MTB": "TEST-MTB-001",
+    "RD":  "TEST-RD-001"
+  },
+  "sites": {
+    "UKT": {
+      "submitterId": "260840108",
+      "gdcId":       "GRZTUE002",
+      "useCases":    ["MTB", "RD"]
+    },
+    "UKL": {
+      "submitterId": "261401052",
+      "gdcId":       "GRZDD0004",
+      "useCases":    ["RD"]
+    }
+  }
+}
