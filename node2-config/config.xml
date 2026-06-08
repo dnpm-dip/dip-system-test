@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Config>
+  <Connector>
+    <!-- Broker mode: routes inter-node queries through the local test broker -->
+    <Broker baseURL="http://broker:9010"/>
+    <UpdatePeriod minutes="60"/>
+  </Connector>
+</Config>
