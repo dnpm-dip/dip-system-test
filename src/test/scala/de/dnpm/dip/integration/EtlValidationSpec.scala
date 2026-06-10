@@ -8,11 +8,11 @@ class EtlValidationSpec extends DipIntegrationSuite {
   // ─── Validate endpoint ─────────────────────────────────────────────────────
 
   "ETL validation" should "return 200 for a well-formed patient record" in {
-    val resp = node1.get("/api/mtb/fake/data/patient-record")
+    val resp = node1.get("/mtb/fake/data/patient-record")
     resp.code.code shouldBe 200
     val record = resp.body.merge
 
-    val validateResp = node1.post("/api/mtb/etl/patient-record/validation", record)
+    val validateResp = node1.post("/mtb/etl/patient-record:validate", record)
     withClue(s"Validation response: ${validateResp.body.merge}\n") {
       validateResp.code.code shouldBe 200
     }
@@ -20,7 +20,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
 
   it should "return issues for a malformed patient record (missing required field)" in {
     val malformed = """{"patient": {}}"""
-    val resp      = node1.post("/api/mtb/etl/patient-record/validation", malformed)
+    val resp      = node1.post("/mtb/etl/patient-record:validate", malformed)
     // Validation endpoint returns 200 with issue list, or 422 directly
     resp.code.code should (be >= 200 and be < 500)
     if (resp.code.code == 200) {
@@ -38,18 +38,18 @@ class EtlValidationSpec extends DipIntegrationSuite {
     val (_, body) = fetchFakeMvhSubmission("mtb")
     val patientId = (Json.parse(body) \ "patient" \ "id").as[String]
 
-    node1.post("/api/mtb/etl/patient-record", body).code.code shouldBe 201
+    node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
 
     // Delete
-    val deleteResp = node1.delete(s"/api/mtb/etl/patient-record/$patientId")
+    val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
     deleteResp.code.code should (be >= 200 and be < 300)
 
     // The record's submission report entry should no longer appear (or be marked deleted)
-    val reportsResp = node1.get("/api/mtb/peer2peer/mvh/submission/report")
+    val reportsResp = node1.get("/mtb/peer2peer/mvh/submissions")
     reportsResp.code.code shouldBe 200
-    val reports = Json.parse(reportsResp.body.merge).as[JsArray].value
+    val reports = (Json.parse(reportsResp.body.merge) \ "entries").as[JsArray].value
     val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
-    val entry = reports.find(r => (r \ "transferTAN").asOpt[String].contains(tanFromBody))
+    val entry = reports.find(r => (r \ "metadata" \ "transferTAN").asOpt[String].contains(tanFromBody))
     // Either absent, or present with a status indicating deletion
     entry.foreach { r =>
       (r \ "status").asOpt[String].foreach(_ should not be "Unsubmitted")
@@ -62,7 +62,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
     val (_, firstBody) = fetchFakeMvhSubmission("mtb")
     val patientId      = (Json.parse(firstBody) \ "patient" \ "id").as[String]
 
-    node1.post("/api/mtb/etl/patient-record", firstBody).code.code shouldBe 201
+    node1.post("/mtb/etl/patient-record", firstBody).code.code shouldBe 200
 
     // Reuse same patient ID with a fresh TAN → conflict expected
     val freshTan    = randomHex(32)
@@ -72,7 +72,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
         "transferTAN" -> freshTan,
       ))
     )).toString()
-    val resp = node1.post("/api/mtb/etl/patient-record", secondBody)
+    val resp = node1.post("/mtb/etl/patient-record", secondBody)
     resp.code.code should (be >= 400 and be < 500)
   }
 }

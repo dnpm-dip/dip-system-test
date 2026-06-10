@@ -45,8 +45,8 @@ object DipTestEnvironment {
 
   private def waitForHealthy(): Unit = {
     val checks = List(
-      node1Url    -> s"$node1Url/api/mtb/fake/data/patient-record",
-      node2Url    -> s"$node2Url/api/rd/fake/data/patient-record",
+      node1Url    -> s"$node1Url/mtb/fake/data/patient-record",
+      node2Url    -> s"$node2Url/rd/fake/data/patient-record",
       wiremockUrl -> s"$wiremockUrl/__admin/health",
     )
     checks.foreach { case (name, url) =>
@@ -66,9 +66,9 @@ object DipTestEnvironment {
         conn.setReadTimeout(5_000)
         try { conn.connect(); conn.getResponseCode } finally conn.disconnect()
       } match {
-        case scala.util.Success(c) if c < 500 => return
-        case scala.util.Success(c)             => lastMsg = s"HTTP $c"
-        case scala.util.Failure(ex)            => lastMsg = ex.getMessage
+        case scala.util.Success(c) if c < 400 => return
+        case scala.util.Success(c)             => lastMsg = s"HTTP $c"; println(s"  [wait] $url → $lastMsg")
+        case scala.util.Failure(ex)            => lastMsg = ex.getMessage; println(s"  [wait] $url → $lastMsg")
       }
       Thread.sleep(3_000)
     }

@@ -51,7 +51,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
 
   /** Fetch a fake MVH submission payload from the node, return (tan, fullBody). */
   def fetchFakeMvhSubmission(useCase: String = "mtb", client: DipNodeClient = node1): (String, String) = {
-    val resp = client.get(s"/api/$useCase/fake/data/mvh-submission")
+    val resp = client.get(s"/$useCase/fake/data/mvh-submission")
     resp.code.code shouldBe 200
     val body = resp.body.merge
     val tan  = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
@@ -61,9 +61,9 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   /** Upload a fake MVH submission, assert 201, return the TAN. */
   def uploadFakeMvhRecord(useCase: String = "mtb", client: DipNodeClient = node1): String = {
     val (tan, body) = fetchFakeMvhSubmission(useCase, client)
-    val resp        = client.post(s"/api/$useCase/etl/patient-record", body)
+    val resp        = client.post(s"/$useCase/etl/patient-record", body)
     withClue(s"Upload of $useCase record to ${client.baseUrl} returned ${resp.code}: ${resp.body.merge}\n") {
-      resp.code.code shouldBe 201
+      resp.code.code shouldBe 200
     }
     tan
   }
@@ -77,15 +77,21 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     timeoutMs: Long     = 60_000L,
   ): Unit = {
     eventually(timeoutMs = timeoutMs) {
-      val resp = client.get(s"/api/$useCase/peer2peer/mvh/submission/report")
+      val resp = client.get(s"/$useCase/peer2peer/mvh/submissions")
       resp.code.code shouldBe 200
-      val reports = Json.parse(resp.body.merge).as[JsArray].value
-      val entry   = reports.find(r => (r \ "transferTAN").asOpt[String].contains(tan))
-      withClue(s"No report with TAN=$tan in ${reports.size} entries") {
-        entry shouldBe defined
-      }
-      withClue(s"Report status for TAN=$tan") {
-        (entry.get \ "status").as[String] shouldBe expectedStatus
+      val entries = (Json.parse(resp.body.merge) \ "entries").as[JsArray].value
+      val entry   = entries.find(r => (r \ "metadata" \ "transferTAN").asOpt[String].contains(tan))
+      // Pending submissions appear in this list; once the CCDN confirms, the entry is removed.
+      expectedStatus match {
+        case "Submitted" =>
+          val preview = entry.map(e => (e \ "metadata" \ "transferTAN").asOpt[String].getOrElse("?"))
+          withClue(s"TAN=$tan still present in unsubmitted queue after ${timeoutMs}ms (entry TAN=$preview)") {
+            entry shouldBe empty
+          }
+        case _ =>
+          withClue(s"No report with TAN=$tan in ${entries.size} entries") {
+            entry shouldBe defined
+          }
       }
     }
   }

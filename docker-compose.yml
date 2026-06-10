@@ -97,7 +97,7 @@ services:
       LOCAL_SITE: UKT:Tübingen
       MTB_RANDOM_DATA: ${MTB_RANDOM_DATA:-50}
       RD_RANDOM_DATA: ${RD_RANDOM_DATA:-50}
-      HATEOAS_HOST: http://localhost:${NODE1_PORT:-8001}/api
+      HATEOAS_HOST: http://localhost:${NODE1_PORT:-8001}
       CONNECTOR_TYPE: broker
       AUTHUP_URL: client://system:${AUTHUP_SECRET:-start123}@http://node1-authup:3000
       ACTIVE_FEDERATED_QUERY_USE_CASES: MTB,RD
@@ -159,7 +159,7 @@ services:
       LOCAL_SITE: UKL:Leipzig
       MTB_RANDOM_DATA: -1
       RD_RANDOM_DATA: ${RD_RANDOM_DATA:-50}
-      HATEOAS_HOST: http://localhost:${NODE2_PORT:-8002}/api
+      HATEOAS_HOST: http://localhost:${NODE2_PORT:-8002}
       CONNECTOR_TYPE: broker
       AUTHUP_URL: client://system:${AUTHUP_SECRET:-start123}@http://node2-authup:3000
       ACTIVE_FEDERATED_QUERY_USE_CASES: RD

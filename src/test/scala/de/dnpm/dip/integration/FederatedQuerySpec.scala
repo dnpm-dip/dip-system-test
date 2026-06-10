@@ -19,31 +19,32 @@ class FederatedQuerySpec extends DipIntegrationSuite {
 
   // ─── MTB queries ───────────────────────────────────────────────────────────
 
-  "Federated MTB query" should "return a query ID with status 201" in {
-    val resp = node1.post("/api/mtb/queries", "{}", Some(token1))
+  private val queryBody = """{"mode":{"code":"federated"}}"""
+
+  "Federated MTB query" should "return a query ID with status 200" in {
+    val resp = node1.post("/mtb/queries", queryBody, Some(token1))
     withClue(s"Response body: ${resp.body.merge}\n") {
-      resp.code.code shouldBe 201
+      resp.code.code shouldBe 200
     }
     val id = (Json.parse(resp.body.merge) \ "id").asOpt[String]
     id shouldBe defined
   }
 
-  it should "return patient summaries from at least node1" in {
-    val createResp = node1.post("/api/mtb/queries", "{}", Some(token1))
-    createResp.code.code shouldBe 201
+  it should "return patient matches from at least node1" in {
+    val createResp = node1.post("/mtb/queries", queryBody, Some(token1))
+    createResp.code.code shouldBe 200
     val queryId = (Json.parse(createResp.body.merge) \ "id").as[String]
 
-    val summariesResp = node1.get(s"/api/mtb/queries/$queryId/patient-summaries", Some(token1))
-    summariesResp.code.code shouldBe 200
+    val matchesResp = node1.get(s"/mtb/queries/$queryId/patient-matches", Some(token1))
+    matchesResp.code.code shouldBe 200
 
-    val total = (Json.parse(summariesResp.body.merge) \ "total").asOpt[Int]
-      .orElse((Json.parse(summariesResp.body.merge) \ "count").asOpt[Int])
+    val total = (Json.parse(matchesResp.body.merge) \ "size").asOpt[Int]
+      .orElse((Json.parse(matchesResp.body.merge) \ "total").asOpt[Int])
       .getOrElse {
-        // Fall back to counting array entries
-        Json.parse(summariesResp.body.merge) match {
-          case arr: JsArray => arr.value.size
+        Json.parse(matchesResp.body.merge) match {
           case obj: JsObject =>
             (obj \ "entries").asOpt[JsArray].map(_.value.size).getOrElse(0)
+          case arr: JsArray => arr.value.size
           case _ => 0
         }
       }
@@ -53,35 +54,36 @@ class FederatedQuerySpec extends DipIntegrationSuite {
   }
 
   it should "not include node2 results in an MTB query (node2 is RD-only)" in {
-    val createResp = node1.post("/api/mtb/queries", "{}", Some(token1))
-    createResp.code.code shouldBe 201
+    val createResp = node1.post("/mtb/queries", queryBody, Some(token1))
+    createResp.code.code shouldBe 200
     val queryId = (Json.parse(createResp.body.merge) \ "id").as[String]
 
-    val resp = node1.get(s"/api/mtb/queries/$queryId", Some(token1))
+    val resp = node1.get(s"/mtb/queries/$queryId", Some(token1))
     resp.code.code shouldBe 200
 
     val json = Json.parse(resp.body.merge)
-    // The query result should reference only UKT (node1); UKL does not participate in MTB
-    val siteIds = (json \ "sites").asOpt[JsArray]
-      .map(_.value.flatMap(s => (s \ "id").asOpt[String]))
+    // peers shows which sites were contacted; UKL is RD-only so should not be online for MTB
+    val onlineSites = (json \ "peers").asOpt[JsArray]
+      .map(_.value.filter(p => (p \ "status").asOpt[String].contains("online"))
+                  .flatMap(p => (p \ "site" \ "code").asOpt[String]))
       .getOrElse(Seq.empty)
 
-    siteIds should not contain "UKL"
+    onlineSites should not contain "UKL"
   }
 
   // ─── RD queries ────────────────────────────────────────────────────────────
 
   "Federated RD query" should "return results from both nodes" in {
-    val createResp = node1.post("/api/rd/queries", "{}", Some(token1))
-    createResp.code.code shouldBe 201
+    val createResp = node1.post("/rd/queries", queryBody, Some(token1))
+    createResp.code.code shouldBe 200
     val queryId = (Json.parse(createResp.body.merge) \ "id").as[String]
 
-    val resp = node1.get(s"/api/rd/queries/$queryId", Some(token1))
+    val resp = node1.get(s"/rd/queries/$queryId", Some(token1))
     resp.code.code shouldBe 200
 
-    val json    = Json.parse(resp.body.merge)
-    val siteIds = (json \ "sites").asOpt[JsArray]
-      .map(_.value.flatMap(s => (s \ "id").asOpt[String]))
+    val json     = Json.parse(resp.body.merge)
+    val siteIds  = (json \ "peers").asOpt[JsArray]
+      .map(_.value.flatMap(p => (p \ "site" \ "code").asOpt[String]))
       .getOrElse(Seq.empty)
 
     // Both nodes export RD
@@ -92,12 +94,12 @@ class FederatedQuerySpec extends DipIntegrationSuite {
   // ─── Edge cases ─────────────────────────────────────────────────────────────
 
   "Federated query" should "require authentication" in {
-    val resp = node1.post("/api/mtb/queries", "{}", token = None)
+    val resp = node1.post("/mtb/queries", queryBody, token = None)
     resp.code.code should (be >= 400 and be < 500)
   }
 
   it should "return 404 for an unknown query ID" in {
-    val resp = node1.get("/api/mtb/queries/no-such-id-xyz", Some(token1))
+    val resp = node1.get("/mtb/queries/no-such-id-xyz", Some(token1))
     resp.code.code shouldBe 404
   }
 }

@@ -1,6 +1,7 @@
 package de.dnpm.dip.integration
 
 import sttp.client3._
+import sttp.model.Uri
 
 /** HTTP client for a single DIP node (api-gateway).
  *
@@ -11,14 +12,16 @@ class DipNodeClient(val baseUrl: String) {
 
   private val backend = HttpClientSyncBackend()
 
+  private def url(path: String): Uri = Uri.unsafeParse(s"$baseUrl$path")
+
   def get(path: String, token: Option[String] = None): Response[Either[String, String]] = {
-    val req = basicRequest.get(uri"$baseUrl$path")
+    val req = basicRequest.get(url(path))
     token.fold(req)(t => req.header("Authorization", s"Bearer $t")).send(backend)
   }
 
   def post(path: String, body: String, token: Option[String] = None): Response[Either[String, String]] = {
     val req = basicRequest
-      .post(uri"$baseUrl$path")
+      .post(url(path))
       .contentType("application/json")
       .body(body)
     token.fold(req)(t => req.header("Authorization", s"Bearer $t")).send(backend)
@@ -26,14 +29,14 @@ class DipNodeClient(val baseUrl: String) {
 
   def postForm(path: String, fields: Map[String, String]): Response[Either[String, String]] = {
     basicRequest
-      .post(uri"$baseUrl$path")
+      .post(url(path))
       .contentType("application/x-www-form-urlencoded")
       .body(fields.map { case (k, v) => s"$k=${java.net.URLEncoder.encode(v, "UTF-8")}" }.mkString("&"))
       .send(backend)
   }
 
   def delete(path: String, token: Option[String] = None): Response[Either[String, String]] = {
-    val req = basicRequest.delete(uri"$baseUrl$path")
+    val req = basicRequest.delete(url(path))
     token.fold(req)(t => req.header("Authorization", s"Bearer $t")).send(backend)
   }
 

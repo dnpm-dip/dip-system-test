@@ -30,27 +30,26 @@ class BrokerSpec extends DipIntegrationSuite {
   }
 
   "DIP node1" should "respond on the health / fake-data endpoint" in {
-    val resp = node1.get("/api/mtb/fake/data/patient-record")
+    val resp = node1.get("/mtb/fake/data/patient-record")
     resp.code.code shouldBe 200
     val body = Json.parse(resp.body.merge)
     (body \ "patient").isDefined shouldBe true
   }
 
   "DIP node2" should "respond on the health / fake-data endpoint" in {
-    val resp = node2.get("/api/rd/fake/data/patient-record")
+    val resp = node2.get("/rd/fake/data/patient-record")
     resp.code.code shouldBe 200
     val body = Json.parse(resp.body.merge)
     (body \ "patient").isDefined shouldBe true
   }
 
   "DIP node1" should "expose the peer2peer status / version endpoint" in {
-    // Any 2xx from the peer2peer namespace confirms the service is reachable
-    val resp = node1.get("/api/mtb/peer2peer/mvh/submission/report")
+    val resp = node1.get("/mtb/peer2peer/mvh/submissions")
     resp.code.code shouldBe 200
   }
 
   "DIP node2" should "expose the peer2peer status / version endpoint" in {
-    val resp = node2.get("/api/rd/peer2peer/mvh/submission/report")
+    val resp = node2.get("/rd/peer2peer/mvh/submissions")
     resp.code.code shouldBe 200
   }
 }

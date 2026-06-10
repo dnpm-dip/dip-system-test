@@ -1,2 +1,6 @@
 .claude/*
 Claude_Instruction.md
+target/
+project/target/
+.idea/*
+.bsp/*
