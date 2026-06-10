@@ -6,6 +6,7 @@
 #   node2-*        - DIP node 2: UKL:Leipzig  (RD random data)
 #   ccdn-mongodb   - MongoDB for the CCDN
 #   ccdn           - Central Data Node (zKDK)
+#   mock-bfarm     - Wiremock stub for the BfArM upload API
 #
 # Usage:
 #   docker compose up -d
@@ -15,7 +16,7 @@
 #   Node 2: http://localhost:8002
 #
 # Notes:
-#   - BfArM submission will fail (no real credentials); CCDN still polls DIP nodes.
+#   - BfArM submissions go to mock-bfarm (Wiremock) — no real credentials needed.
 #   - DIP backends download the HGNC gene set (~50 MB) on first startup (needs internet).
 #   - ghcr.io images may require: docker login ghcr.io
 
@@ -41,10 +42,28 @@ services:
   broker:
     image: nginx:alpine
     restart: unless-stopped
+    ports:
+      - "19010:9010"
     networks: [integration]
     volumes:
       - ./broker/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./broker/sites-enabled:/etc/nginx/sites-enabled:ro
+
+  # ─── Mock BfArM API ──────────────────────────────────────────────────────
+  mock-bfarm:
+    image: wiremock/wiremock:3x
+    command: --port 8080 --verbose
+    networks: [integration]
+    volumes:
+      - ./tests/wiremock/mappings:/home/wiremock/mappings:ro
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/__admin/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # ─── DIP Node 1: UKT:Tübingen ────────────────────────────────────────────
   node1-mysql:
@@ -69,6 +88,8 @@ services:
       node1-mysql:
         condition: service_healthy
     command: server/core start
+    ports:
+      - "8011:3000"
     environment:
       PUBLIC_URL: http://localhost:${NODE1_PORT:-8001}/auth/
       AUTHORIZE_REDIRECT_URL: http://localhost:${NODE1_PORT:-8001}
@@ -131,6 +152,8 @@ services:
       node2-mysql:
         condition: service_healthy
     command: server/core start
+    ports:
+      - "8012:3000"
     environment:
       PUBLIC_URL: http://localhost:${NODE2_PORT:-8002}/auth/
       AUTHORIZE_REDIRECT_URL: http://localhost:${NODE2_PORT:-8002}
@@ -194,13 +217,14 @@ services:
         condition: service_healthy
       broker:
         condition: service_started
+      mock-bfarm:
+        condition: service_healthy
     environment:
       # Points directly at the local broker (bypasses the production nginx forward proxy)
       CCDN_BROKER_BASEURL: http://broker:9010
       CCDN_BROKER_CONNECTOR_TIMEOUT: "10"
-      # BfArM credentials: set real values to enable full workflow; leave as-is to test only CCDN↔DIP
-      CCDN_BFARM_API_URL: ${BFARM_API_URL:-https://mvgenomseq.bfarm.de/api/upload}
-      CCDN_BFARM_AUTH_URL: ${BFARM_AUTH_URL:-https://mvgenomseq.bfarm.de/realms/mvgenomseq/protocol/openid-connect/token}
+      CCDN_BFARM_API_URL: http://mock-bfarm:8080/bfarm/api/upload
+      CCDN_BFARM_AUTH_URL: http://mock-bfarm:8080/bfarm/oauth/token
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
       CCDN_MONGODB_URI: mongodb://ccdn-mongodb:27017/ccdn

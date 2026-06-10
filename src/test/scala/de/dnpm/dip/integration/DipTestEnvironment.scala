@@ -21,11 +21,6 @@ object DipTestEnvironment {
   val authup1Url  = "http://localhost:8011"
   val authup2Url  = "http://localhost:8012"
 
-  private val composeFiles = Seq(
-    "-f", "docker-compose.yml",
-    "-f", "docker-compose.test.yml",
-  )
-
   lazy val ready: Boolean = {
     startStack()
     waitForHealthy()
@@ -34,12 +29,12 @@ object DipTestEnvironment {
 
   private def startStack(): Unit = {
     println("[DipTestEnvironment] Starting Docker Compose stack…")
-    val code = (Seq("docker", "compose") ++ composeFiles ++ Seq("up", "-d")).!
+    val code = Seq("docker", "compose", "up", "-d").!
     require(code == 0, s"docker compose up failed (exit $code)")
 
     Runtime.getRuntime.addShutdownHook(new Thread(() => {
       println("[DipTestEnvironment] Tearing down Docker Compose stack…")
-      (Seq("docker", "compose") ++ composeFiles ++ Seq("down")).!
+      Seq("docker", "compose", "down").!
     }))
   }
 
