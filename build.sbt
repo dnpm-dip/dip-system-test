@@ -14,3 +14,5 @@ Test / fork              := false
 // Print test events as they happen; default buffering swallows all output when the
 // process is killed before the run completes, making timeouts look like deadlocks.
 Test / logBuffered       := false
+// Run only the top-level wrapper so individual specs are not discovered and double-run.
+Test / testOptions += Tests.Filter(_ == "de.dnpm.dip.integration.IntegrationTests")
