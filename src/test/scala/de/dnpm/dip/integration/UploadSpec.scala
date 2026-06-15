@@ -17,6 +17,17 @@ class UploadSpec extends DipIntegrationSuite {
     second.code.code should (be >= 400 and be < 500)
   }
 
+  it should "reject a second initial submission for the same EpisodeOfCare" in {
+    val (_, body) = fetchFakeMvhSubmission("mtb")
+    node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
+
+    val freshTan  = randomHex(32)
+    val second    = (Json.parse(body).as[JsObject] ++ Json.obj(
+      "metadata" -> ((Json.parse(body) \ "metadata").as[JsObject] ++ Json.obj("transferTAN" -> freshTan))
+    )).toString()
+    node1.post("/mtb/etl/patient-record", second).code.code should (be >= 400 and be < 500)
+  }
+
   // ─── Submission type rules ──────────────────────────────────────────────────
 
   it should "accept a submission with type=test" in {

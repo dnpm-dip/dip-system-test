@@ -10,7 +10,7 @@ libraryDependencies ++= Seq(
 
 // Integration tests share a single Docker Compose stack: run sequentially in one JVM
 Test / parallelExecution := false
-Test / fork              := false
+Test / fork              := true
 // Print test events as they happen; default buffering swallows all output when the
 // process is killed before the run completes, making timeouts look like deadlocks.
 Test / logBuffered       := false

@@ -49,19 +49,34 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     buf.map("%02x".format(_)).mkString
   }
 
-  /** Fetch a fake MVH submission payload from the node, return (tan, fullBody). */
-  def fetchFakeMvhSubmission(useCase: String = "mtb", client: DipNodeClient = node1): (String, String) = {
-    val resp = client.get(s"/$useCase/fake/data/mvh-submission")
-    resp.code.code shouldBe 200
-    val body = resp.body.merge
-    val tan  = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
-    (tan, body)
+  /** Load a static MVH submission, randomise all identity fields, return (tan, body). */
+  def fetchFakeMvhSubmission(useCase: String, client: DipNodeClient = node1): (String, String) = {
+    require(Set("mtb","rd").contains(useCase))
+    val raw  = scala.io.Source.fromResource(s"submissions/$useCase.json").mkString
+    val json = Json.parse(raw)
+
+    val oldPatientId = (json \ "patient" \ "id").as[String]
+    val oldEpisodeIds = (json \ "episodesOfCare").as[JsArray].value
+                          .map(e => (e \ "id").as[String])
+
+    var body = raw
+    body = body.replace(oldPatientId, java.util.UUID.randomUUID().toString)
+    for (eid <- oldEpisodeIds)
+      body = body.replace(eid, java.util.UUID.randomUUID().toString)
+
+    val tan     = randomHex(32)
+    val parsed  = Json.parse(body).as[JsObject]
+    val withTan = parsed ++ Json.obj(
+      "metadata" -> ((parsed \ "metadata").as[JsObject] ++ Json.obj("transferTAN" -> tan))
+    )
+    (tan, withTan.toString())
   }
 
-  /** Upload a fake MVH submission, assert 201, return the TAN. */
-  def uploadFakeMvhRecord(useCase: String = "mtb", client: DipNodeClient = node1): String = {
-    val (tan, body) = fetchFakeMvhSubmission(useCase, client)
-    val resp        = client.post(s"/$useCase/etl/patient-record", body)
+  /** Upload a fake MVH submission, assert 200, return the TAN. */
+  def uploadFakeMvhRecord(useCase: String, client: DipNodeClient = node1): String = {
+    require(Set("mtb","rd").contains(useCase))
+    val (tan, fakeSubmissionBody) = fetchFakeMvhSubmission(useCase, client)
+    val resp        = client.post(s"/$useCase/etl/patient-record", fakeSubmissionBody)
     withClue(s"Upload of $useCase record to ${client.baseUrl} returned ${resp.code}: ${resp.body.merge}\n") {
       resp.code.code shouldBe 200
     }
@@ -72,10 +87,11 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   def awaitReportStatus(
     tan: String,
     expectedStatus: String,
-    useCase: String     = "mtb",
+    useCase: String,
     client: DipNodeClient = node1,
     timeoutMs: Long     = 60_000L,
   ): Unit = {
+    require(Set("mtb","rd").contains(useCase))
     eventually(timeoutMs = timeoutMs) {
       val resp = client.get(s"/$useCase/peer2peer/mvh/submissions")
       resp.code.code shouldBe 200
