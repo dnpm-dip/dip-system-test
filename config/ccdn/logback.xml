@@ -22,6 +22,8 @@
     </encoder>
   </appender>
 
+  <logger name="de.dnpm.ccdn" level="ALL"/>
+
   <root level="INFO">
     <appender-ref ref="STDOUT"/>
     <appender-ref ref="FILE"/>

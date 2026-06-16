@@ -11,21 +11,30 @@ class UploadSpec extends DipIntegrationSuite {
     val (_, body) = fetchFakeMvhSubmission("mtb")
 
     val first = node1.post("/mtb/etl/patient-record", body)
-    first.code.code shouldBe 200
-
+    withClue(s"first upload: ${first.code} ${first.body.merge}\n") {
+      first.code.code shouldBe 200
+    }
     val second = node1.post("/mtb/etl/patient-record", body)
-    second.code.code should (be >= 400 and be < 500)
+    withClue(s"second upload with same TAN should be rejected: ${second.code} ${second.body.merge}\n") {
+      second.code.code should (be >= 400 and be < 500)
+    }
   }
 
   it should "reject a second initial submission for the same EpisodeOfCare" in {
     val (_, body) = fetchFakeMvhSubmission("mtb")
-    node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
+    val first = node1.post("/mtb/etl/patient-record", body)
+    withClue(s"first upload: ${first.code} ${first.body.merge}\n") {
+      first.code.code shouldBe 200
+    }
 
-    val freshTan  = randomHex(32)
-    val second    = (Json.parse(body).as[JsObject] ++ Json.obj(
+    val freshTan = randomHex()
+    val second   = (Json.parse(body).as[JsObject] ++ Json.obj(
       "metadata" -> ((Json.parse(body) \ "metadata").as[JsObject] ++ Json.obj("transferTAN" -> freshTan))
     )).toString()
-    node1.post("/mtb/etl/patient-record", second).code.code should (be >= 400 and be < 500)
+    val resp = node1.post("/mtb/etl/patient-record", second)
+    withClue(s"second initial for same EpisodeOfCare should be rejected: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code should (be >= 400 and be < 500)
+    }
   }
 
   // ─── Submission type rules ──────────────────────────────────────────────────
@@ -37,14 +46,15 @@ class UploadSpec extends DipIntegrationSuite {
       "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj("type" -> "test"))
     )
     val resp = node1.post("/mtb/etl/patient-record", modified.toString())
-    resp.code.code shouldBe 200
+    withClue(s"type=test upload: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code shouldBe 200
+    }
   }
 
   it should "reject a FollowUp submission without a prior Initial for the same TAN" in {
     val (_, body) = fetchFakeMvhSubmission("mtb")
     val json      = Json.parse(body)
-    // Swap the TAN for a fresh one (no prior Initial) and set type=followup
-    val freshTan  = randomHex(32)
+    val freshTan  = randomHex()
     val modified  = json.as[JsObject] ++ Json.obj(
       "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj(
         "type"        -> "followup",
@@ -52,27 +62,33 @@ class UploadSpec extends DipIntegrationSuite {
       ))
     )
     val resp = node1.post("/mtb/etl/patient-record", modified.toString())
-    resp.code.code should (be >= 400 and be < 500)
+    withClue(s"followup without prior initial should be rejected: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code should (be >= 400 and be < 500)
+    }
   }
 
   it should "accept a Correction after an Initial has been uploaded" in {
-    val (tan, body) = fetchFakeMvhSubmission("mtb")
-    node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
+    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val initial = node1.post("/mtb/etl/patient-record", body)
+    withClue(s"initial upload: ${initial.code} ${initial.body.merge}\n") {
+      initial.code.code shouldBe 200
+    }
 
     val json     = Json.parse(body)
     val corrBody = (json.as[JsObject] ++ Json.obj(
       "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj("type" -> "correction"))
     )).toString()
     val resp = node1.post("/mtb/etl/patient-record", corrBody)
-    resp.code.code shouldBe 200
+    withClue(s"correction upload: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code shouldBe 200
+    }
   }
 
   // ─── Consent revocation ────────────────────────────────────────────────────
 
   it should "accept a ConsentRevocation and remove the patient from the data set" in {
-    val tan = uploadFakeMvhRecord("mtb")
+    val tan = uploadFakeMvhRecordToDipnode("mtb")
 
-    // Revocation payload: type=initial record with all consents set to deny
     val (_, body) = fetchFakeMvhSubmission("mtb")
     val json      = Json.parse(body)
     val denyConsent = Json.obj(
@@ -91,27 +107,29 @@ class UploadSpec extends DipIntegrationSuite {
       "consent"  -> denyConsent,
     )
     val resp = node1.post("/mtb/etl/patient-record", revoked.toString())
-    resp.code.code should (be >= 200 and be < 300)
+    withClue(s"consent revocation upload: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code should (be >= 200 and be < 300)
+    }
   }
 
   // ─── Use-case isolation ────────────────────────────────────────────────────
 
   it should "keep MTB records out of the RD submission report list" in {
-    val mtbTan = uploadFakeMvhRecord("mtb")
-
-    val rdResp = node1.get("/rd/peer2peer/mvh/submissions")
-    rdResp.code.code shouldBe 200
+    val mtbTan  = uploadFakeMvhRecordToDipnode("mtb")
+    val rdResp  = node1.get("/rd/peer2peer/mvh/submissions")
+    withClue(s"GET /rd/peer2peer/mvh/submissions: ${rdResp.code} ${rdResp.body.merge}\n") {
+      rdResp.code.code shouldBe 200
+    }
     val rdTans = (Json.parse(rdResp.body.merge) \ "entries").as[JsArray].value
       .flatMap(r => (r \ "metadata" \ "transferTAN").asOpt[String])
     rdTans should not contain mtbTan
   }
 
   it should "reject an MTB record posted to node2 (node2 is RD-only)" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb", node2)
-    // node2 has MTB_RANDOM_DATA=-1; the fake endpoint exists but the ETL path
-    // for MTB should either be absent or return an error
-    val resp = node2.post("/mtb/etl/patient-record", body)
-    // Acceptable: 404 (route not registered) or 4xx (use-case disabled)
-    resp.code.code should (be >= 400 and be < 600)
+    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val resp      = node2.post("/mtb/etl/patient-record", body)
+    withClue(s"MTB upload to RD-only node2: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code should (be >= 400 and be < 600)
+    }
   }
 }

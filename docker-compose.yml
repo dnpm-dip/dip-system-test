@@ -46,8 +46,8 @@ services:
       - "19010:9010"
     networks: [integration]
     volumes:
-      - ./broker/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./broker/sites-enabled:/etc/nginx/sites-enabled:ro
+      - ./config/broker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/broker/sites-enabled:/etc/nginx/sites-enabled:ro
 
   # ─── Mock BfArM API ──────────────────────────────────────────────────────
   mock-bfarm:
@@ -125,7 +125,7 @@ services:
       TZ: Europe/Berlin
       JAVA_OPTS: "-Xmx1g"
     volumes:
-      - ./node1-config:/dnpm_config
+      - ./config/node1:/dnpm_config
       - node1-backend-data:/dnpm_data
     networks: [integration]
 
@@ -189,7 +189,7 @@ services:
       TZ: Europe/Berlin
       JAVA_OPTS: "-Xmx1g"
     volumes:
-      - ./node2-config:/dnpm_config
+      - ./config/node2:/dnpm_config
       - node2-backend-data:/dnpm_data
     networks: [integration]
 
@@ -209,8 +209,7 @@ services:
     networks: [integration]
 
   ccdn:
-    image: ghcr.io/dnpm-dip/central-data-node:${CCDN_IMAGE_TAG:-latest}
-    pull_policy: ${PULL_POLICY:-always}
+    image: ccdnfailzors:0.5
     restart: unless-stopped
     depends_on:
       ccdn-mongodb:
@@ -231,5 +230,5 @@ services:
       TZ: Europe/Berlin
     volumes:
       - ccdn-data:/ccdn_data
-      - ./ccdn-config:/ccdn_config
+      - ./config/ccdn:/ccdn_config
     networks: [integration]

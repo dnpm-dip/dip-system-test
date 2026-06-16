@@ -50,7 +50,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   }
 
   /** Load a static MVH submission, randomise all identity fields, return (tan, body). */
-  def fetchFakeMvhSubmission(useCase: String, client: DipNodeClient = node1): (String, String) = {
+  def fetchFakeMvhSubmission(useCase: String): (String, String) = {
     require(Set("mtb","rd").contains(useCase))
     val raw  = scala.io.Source.fromResource(s"submissions/$useCase.json").mkString
     val json = Json.parse(raw)
@@ -73,9 +73,9 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   }
 
   /** Upload a fake MVH submission, assert 200, return the TAN. */
-  def uploadFakeMvhRecord(useCase: String, client: DipNodeClient = node1): String = {
+  def uploadFakeMvhRecordToDipnode(useCase: String, client: DipNodeClient = node1): String = {
     require(Set("mtb","rd").contains(useCase))
-    val (tan, fakeSubmissionBody) = fetchFakeMvhSubmission(useCase, client)
+    val (tan, fakeSubmissionBody) = fetchFakeMvhSubmission(useCase)
     val resp        = client.post(s"/$useCase/etl/patient-record", fakeSubmissionBody)
     withClue(s"Upload of $useCase record to ${client.baseUrl} returned ${resp.code}: ${resp.body.merge}\n") {
       resp.code.code shouldBe 200
@@ -83,7 +83,12 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     tan
   }
 
-  /** Poll the MVH submission report list until the entry for `tan` has `expectedStatus`. */
+  /** Poll the MVH submission-report list (filtered to Unsubmitted) until the entry for `tan` reaches `expectedStatus`.
+   *
+   *  Uses GET /$useCase/peer2peer/mvh/submission-reports?status=unsubmitted, which is the same
+   *  endpoint the CCDN polls.  After the CCDN calls :submitted, the entry disappears from this
+   *  list.  TAN is carried in the top-level "id" field of each Submission.Report entry.
+   */
   def awaitReportStatus(
     tan: String,
     expectedStatus: String,
@@ -93,19 +98,17 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   ): Unit = {
     require(Set("mtb","rd").contains(useCase))
     eventually(timeoutMs = timeoutMs) {
-      val resp = client.get(s"/$useCase/peer2peer/mvh/submissions")
+      val resp = client.get(s"/$useCase/peer2peer/mvh/submission-reports?status=unsubmitted")
       resp.code.code shouldBe 200
       val entries = (Json.parse(resp.body.merge) \ "entries").as[JsArray].value
-      val entry   = entries.find(r => (r \ "metadata" \ "transferTAN").asOpt[String].contains(tan))
-      // Pending submissions appear in this list; once the CCDN confirms, the entry is removed.
+      val entry   = entries.find(r => (r \ "id").asOpt[String].contains(tan))
       expectedStatus match {
         case "Submitted" =>
-          val preview = entry.map(e => (e \ "metadata" \ "transferTAN").asOpt[String].getOrElse("?"))
-          withClue(s"TAN=$tan still present in unsubmitted queue after ${timeoutMs}ms (entry TAN=$preview)") {
+          withClue(s"TAN=$tan still present in unsubmitted report queue after ${timeoutMs}ms") {
             entry shouldBe empty
           }
         case _ =>
-          withClue(s"No report with TAN=$tan in ${entries.size} entries") {
+          withClue(s"No unsubmitted report with TAN=$tan in ${entries.size} entries") {
             entry shouldBe defined
           }
       }

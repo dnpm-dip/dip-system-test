@@ -21,7 +21,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   }
 
   "CCDN workflow" should "confirm an MTB submission via the mock BfArM" in {
-    val tan = uploadFakeMvhRecord(useCase = "mtb")
+    val tan = uploadFakeMvhRecordToDipnode(useCase = "mtb")
 
     // CCDN polls every 5 seconds; allow up to 60 s for the round-trip
     awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 60_000L)
@@ -30,7 +30,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   }
 
   it should "confirm an RD submission via the mock BfArM" in {
-    val tan = uploadFakeMvhRecord(useCase = "rd")
+    val tan = uploadFakeMvhRecordToDipnode(useCase = "rd")
 
     awaitReportStatus(tan, "Submitted", useCase = "rd", timeoutMs = 60_000L)
 
@@ -38,7 +38,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   }
 
   it should "confirm multiple uploads independently" in {
-    val tans = (1 to 3).map(_ => uploadFakeMvhRecord(useCase = "mtb"))
+    val tans = (1 to 3).map(_ => uploadFakeMvhRecordToDipnode(useCase = "mtb"))
 
     tans.foreach { tan =>
       awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
@@ -55,7 +55,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   }
 
   it should "confirm an RD submission submitted to node2" in {
-    val tan = uploadFakeMvhRecord(useCase = "rd", client = node2)
+    val tan = uploadFakeMvhRecordToDipnode(useCase = "rd", client = node2)
 
     awaitReportStatus(tan, "Submitted", useCase = "rd", client = node2, timeoutMs = 60_000L)
   }

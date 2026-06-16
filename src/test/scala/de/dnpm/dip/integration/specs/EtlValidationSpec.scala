@@ -44,15 +44,14 @@ class EtlValidationSpec extends DipIntegrationSuite {
     val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
     deleteResp.code.code should (be >= 200 and be < 300)
 
-    // The record's submission report entry should no longer appear (or be marked deleted)
-    val reportsResp = node1.get("/mtb/peer2peer/mvh/submissions")
+    // After deletion the submission report must not appear in the unsubmitted queue
+    val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
+    val reportsResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
     reportsResp.code.code shouldBe 200
     val reports = (Json.parse(reportsResp.body.merge) \ "entries").as[JsArray].value
-    val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
-    val entry = reports.find(r => (r \ "metadata" \ "transferTAN").asOpt[String].contains(tanFromBody))
-    // Either absent, or present with a status indicating deletion
-    entry.foreach { r =>
-      (r \ "status").asOpt[String].foreach(_ should not be "Unsubmitted")
+    val entry = reports.find(r => (r \ "id").asOpt[String].contains(tanFromBody))
+    withClue(s"Deleted record TAN=$tanFromBody still appears in unsubmitted report queue") {
+      entry shouldBe empty
     }
   }
 
