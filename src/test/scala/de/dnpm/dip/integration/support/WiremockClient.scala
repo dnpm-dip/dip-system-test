@@ -32,4 +32,21 @@ class WiremockClient(adminBase: String) {
     require(resp.code.isSuccess, s"Wiremock requests failed: ${resp.code}")
     (Json.parse(resp.body.merge) \ "requests").as[JsArray]
   }
+
+  /** Register a stub mapping; returns the generated stub ID for later removal. */
+  def addStub(mapping: JsObject): String = {
+    val resp = basicRequest
+      .post(uri"$adminBase/__admin/mappings")
+      .contentType("application/json")
+      .body(mapping.toString())
+      .send(backend)
+    require(resp.code.isSuccess, s"Wiremock addStub failed: ${resp.code}")
+    (Json.parse(resp.body.merge) \ "id").as[String]
+  }
+
+  /** Remove a previously registered stub mapping by ID. */
+  def removeStub(stubId: String): Unit = {
+    basicRequest.delete(uri"$adminBase/__admin/mappings/$stubId").send(backend)
+    ()
+  }
 }

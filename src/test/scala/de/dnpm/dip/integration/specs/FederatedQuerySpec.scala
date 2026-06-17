@@ -15,7 +15,7 @@ import play.api.libs.json._
  */
 class FederatedQuerySpec extends DipIntegrationSuite {
 
-  private lazy val token1 = node1.authToken(DipTestEnvironment.authup1Url)
+  private lazy val token1 = node1.authToken(DipTestEnvironment.dipAuthup1Url)
 
   // ─── MTB queries ───────────────────────────────────────────────────────────
 

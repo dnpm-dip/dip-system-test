@@ -21,10 +21,10 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     val _ = DipTestEnvironment.ready
   }
 
-  val node1    = new DipNodeClient(DipTestEnvironment.node1Url)
-  val node2    = new DipNodeClient(DipTestEnvironment.node2Url)
+  val node1    = new DipNodeClient(DipTestEnvironment.dipNode1Url)
+  val node2    = new DipNodeClient(DipTestEnvironment.dipNode2Url)
   val broker   = new DipNodeClient(DipTestEnvironment.brokerUrl)
-  val wiremock = new WiremockClient(DipTestEnvironment.wiremockUrl)
+  val bfarmWiremock = new WiremockClient(DipTestEnvironment.bfarmWiremockUrl)
 
   // ─── Polling helper ────────────────────────────────────────────────────────
 
@@ -81,6 +81,25 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
       resp.code.code shouldBe 200
     }
     tan
+  }
+
+  /** Wait until every node's unsubmitted queue is empty (CCDN has processed all pre-existing
+   *  reports), then reset the BfArM wiremock request log.  Call in beforeEach of specs that
+   *  assert exact BfArM upload counts so records from previous tests don't pollute the baseline.
+   */
+  def drainUnsubmittedQueuesAndResetCounters(timeoutMs: Long = 120_000L): Unit = {
+    // node1 (UKT) exports MTB + RD; node2 (UKL) exports RD only
+    for ((client, useCase) <- List(node1 -> "mtb", node1 -> "rd", node2 -> "rd")) {
+      eventually(timeoutMs = timeoutMs) {
+        val resp = client.get(s"/$useCase/peer2peer/mvh/submission-reports?status=unsubmitted")
+        resp.code.code shouldBe 200
+        val entries = (Json.parse(resp.body.merge) \ "entries").as[JsArray].value
+        withClue(s"${useCase.toUpperCase} unsubmitted queue on ${client.baseUrl} still has ${entries.size} entries") {
+          entries shouldBe empty
+        }
+      }
+    }
+    bfarmWiremock.resetRequests()
   }
 
   /** Poll the MVH submission-report list (filtered to Unsubmitted) until the entry for `tan` reaches `expectedStatus`.

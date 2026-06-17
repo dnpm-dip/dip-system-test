@@ -55,7 +55,7 @@ services:
     command: --port 8080 --verbose
     networks: [integration]
     volumes:
-      - ./tests/wiremock/mappings:/home/wiremock/mappings:ro
+      - ./config/wiremock/mappings:/home/wiremock/mappings:ro
     ports:
       - "18080:8080"
     healthcheck:

@@ -14,12 +14,12 @@ import scala.util.Try
  */
 object DipTestEnvironment {
 
-  val node1Url    = "http://localhost:8001"
-  val node2Url    = "http://localhost:8002"
+  val dipNode1Url    = "http://localhost:8001"
+  val dipNode2Url    = "http://localhost:8002"
   val brokerUrl   = "http://localhost:19010"
-  val wiremockUrl = "http://localhost:18080"
-  val authup1Url  = "http://localhost:8011"
-  val authup2Url  = "http://localhost:8012"
+  val bfarmWiremockUrl = "http://localhost:18080"
+  val dipAuthup1Url  = "http://localhost:8011"
+  val dipAuthup2Url  = "http://localhost:8012"
 
   lazy val ready: Boolean = {
     startStack()
@@ -40,9 +40,9 @@ object DipTestEnvironment {
 
   private def waitForHealthy(): Unit = {
     val checks = List(
-      node1Url    -> s"$node1Url/mtb/fake/data/patient-record",
-      node2Url    -> s"$node2Url/rd/fake/data/patient-record",
-      wiremockUrl -> s"$wiremockUrl/__admin/health",
+      dipNode1Url    -> s"$dipNode1Url/mtb/fake/data/patient-record",
+      dipNode2Url    -> s"$dipNode2Url/rd/fake/data/patient-record",
+      bfarmWiremockUrl -> s"$bfarmWiremockUrl/__admin/health",
     )
     checks.foreach { case (name, url) =>
       println(s"[DipTestEnvironment] Waiting for $name …")

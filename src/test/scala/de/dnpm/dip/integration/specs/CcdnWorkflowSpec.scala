@@ -17,7 +17,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
 
   override def beforeEach(): Unit = {
     super.beforeEach()
-    wiremock.resetRequests()
+    drainUnsubmittedQueuesAndResetCounters()
   }
 
   "CCDN workflow" should "confirm an MTB submission via the mock BfArM" in {
@@ -26,7 +26,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     // CCDN polls every 5 seconds; allow up to 60 s for the round-trip
     awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 60_000L)
 
-    wiremock.requestCount(".*upload.*") should be >= 1
+    bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
 
   it should "confirm an RD submission via the mock BfArM" in {
@@ -34,7 +34,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
 
     awaitReportStatus(tan, "Submitted", useCase = "rd", timeoutMs = 60_000L)
 
-    wiremock.requestCount(".*upload.*") should be >= 1
+    bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
 
   it should "confirm multiple uploads independently" in {
@@ -44,19 +44,36 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
       awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
     }
 
-    // Each upload causes one BfArM call
-    wiremock.requestCount(".*upload.*") should be >= tans.size
+    // Each submission triggers exactly one BfArM call; beforeEach reset guarantees a clean baseline
+    bfarmWiremock.requestCount(".*upload.*") shouldBe tans.size
   }
 
   it should "leave a report in Unsubmitted state when BfArM is unreachable" in {
-    // This scenario is only observable when running without the test overlay's
-    // mock-bfarm.  Skipped here; covered by the base compose (no BfArM creds).
-    pending
+    // Override the normal bfarm-upload stub with a higher-priority 503 fault
+    val faultStub = Json.obj(
+      "priority" -> 10,
+      "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
+      "response" -> Json.obj("status" -> 503, "body" -> "Service Unavailable")
+    )
+    val stubId = bfarmWiremock.addStub(faultStub)
+    try {
+      val tan = uploadFakeMvhRecordToDipnode(useCase = "mtb")
+      // Allow 3+ CCDN polling cycles (5 s each) to attempt and fail the upload
+      Thread.sleep(20_000L)
+      // Report must still be present in the unsubmitted queue
+      awaitReportStatus(tan, "Unsubmitted", useCase = "mtb", timeoutMs = 5_000L)
+      // CCDN must have attempted the upload at least once (exact count depends on timing)
+      bfarmWiremock.requestCount(".*upload.*") should be >= 1
+    } finally {
+      bfarmWiremock.removeStub(stubId)
+    }
   }
 
   it should "confirm an RD submission submitted to node2" in {
     val tan = uploadFakeMvhRecordToDipnode(useCase = "rd", client = node2)
 
-    awaitReportStatus(tan, "Submitted", useCase = "rd", client = node2, timeoutMs = 60_000L)
+    awaitReportStatus(tan, "Submitted", useCase = "rd", client = node2)
+
+    bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
 }
