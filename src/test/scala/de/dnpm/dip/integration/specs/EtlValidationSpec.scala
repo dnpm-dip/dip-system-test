@@ -35,7 +35,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
 
   "ETL delete" should "remove a previously uploaded record" in {
     // Upload a record and capture the patient ID
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission(useCase = "mtb")
     val patientId = (Json.parse(body) \ "patient" \ "id").as[String]
 
     node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
@@ -58,7 +58,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
   // ─── Duplicate patient ID ───────────────────────────────────────────────────
 
   it should "reject a second upload with the same patient ID but different TAN" in {
-    val (_, firstBody) = fetchFakeMvhSubmission("mtb")
+    val (_, firstBody) = generateFakeMvhSubmission(useCase = "mtb")
     val patientId      = (Json.parse(firstBody) \ "patient" \ "id").as[String]
 
     node1.post("/mtb/etl/patient-record", firstBody).code.code shouldBe 200

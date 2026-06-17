@@ -8,7 +8,7 @@ class UploadSpec extends DipIntegrationSuite {
   // ─── Duplicate TAN ─────────────────────────────────────────────────────────
 
   "ETL upload" should "reject a second upload with the same TAN" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
 
     val first = node1.post("/mtb/etl/patient-record", body)
     withClue(s"first upload: ${first.code} ${first.body.merge}\n") {
@@ -21,7 +21,7 @@ class UploadSpec extends DipIntegrationSuite {
   }
 
   it should "reject a second initial submission for the same EpisodeOfCare" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val first = node1.post("/mtb/etl/patient-record", body)
     withClue(s"first upload: ${first.code} ${first.body.merge}\n") {
       first.code.code shouldBe 200
@@ -40,7 +40,7 @@ class UploadSpec extends DipIntegrationSuite {
   // ─── Submission type rules ──────────────────────────────────────────────────
 
   it should "accept a submission with type=test" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val json      = Json.parse(body)
     val modified  = json.as[JsObject] ++ Json.obj(
       "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj("type" -> "test"))
@@ -52,7 +52,7 @@ class UploadSpec extends DipIntegrationSuite {
   }
 
   it should "reject a FollowUp submission without a prior Initial for the same TAN" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val json      = Json.parse(body)
     val freshTan  = randomHex()
     val modified  = json.as[JsObject] ++ Json.obj(
@@ -68,7 +68,7 @@ class UploadSpec extends DipIntegrationSuite {
   }
 
   it should "accept a Correction after an Initial has been uploaded" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val initial = node1.post("/mtb/etl/patient-record", body)
     withClue(s"initial upload: ${initial.code} ${initial.body.merge}\n") {
       initial.code.code shouldBe 200
@@ -89,7 +89,7 @@ class UploadSpec extends DipIntegrationSuite {
   it should "accept a ConsentRevocation and remove the patient from the data set" in {
     val tan = uploadFakeMvhRecordToDipnode("mtb")
 
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val json      = Json.parse(body)
     val denyConsent = Json.obj(
       "purpose"    -> Json.obj("coding" -> Json.arr(
@@ -126,7 +126,7 @@ class UploadSpec extends DipIntegrationSuite {
   }
 
   it should "reject an MTB record posted to node2 (node2 is RD-only)" in {
-    val (_, body) = fetchFakeMvhSubmission("mtb")
+    val (_, body) = generateFakeMvhSubmission("mtb")
     val resp      = node2.post("/mtb/etl/patient-record", body)
     withClue(s"MTB upload to RD-only node2: ${resp.code} ${resp.body.merge}\n") {
       resp.code.code should (be >= 400 and be < 600)

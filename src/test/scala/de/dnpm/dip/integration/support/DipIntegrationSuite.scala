@@ -50,7 +50,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   }
 
   /** Load a static MVH submission, randomise all identity fields, return (tan, body). */
-  def fetchFakeMvhSubmission(useCase: String): (String, String) = {
+  def generateFakeMvhSubmission(useCase: String, intendedTan:String=randomHex()): (String, String) = {
     require(Set("mtb","rd").contains(useCase))
     val raw  = scala.io.Source.fromResource(s"submissions/$useCase.json").mkString
     val json = Json.parse(raw)
@@ -64,18 +64,17 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     for (eid <- oldEpisodeIds)
       body = body.replace(eid, java.util.UUID.randomUUID().toString)
 
-    val tan     = randomHex(32)
     val parsed  = Json.parse(body).as[JsObject]
     val withTan = parsed ++ Json.obj(
-      "metadata" -> ((parsed \ "metadata").as[JsObject] ++ Json.obj("transferTAN" -> tan))
+      "metadata" -> ((parsed \ "metadata").as[JsObject] ++ Json.obj("transferTAN" -> intendedTan))
     )
-    (tan, withTan.toString())
+    (intendedTan, withTan.toString())
   }
 
   /** Upload a fake MVH submission, assert 200, return the TAN. */
-  def uploadFakeMvhRecordToDipnode(useCase: String, client: DipNodeClient = node1): String = {
+  def uploadFakeMvhRecordToDipnode(useCase: String, client: DipNodeClient = node1, intendedTan:String=randomHex()): String = {
     require(Set("mtb","rd").contains(useCase))
-    val (tan, fakeSubmissionBody) = fetchFakeMvhSubmission(useCase)
+    val (tan, fakeSubmissionBody) = generateFakeMvhSubmission(useCase,intendedTan)
     val resp        = client.post(s"/$useCase/etl/patient-record", fakeSubmissionBody)
     withClue(s"Upload of $useCase record to ${client.baseUrl} returned ${resp.code}: ${resp.body.merge}\n") {
       resp.code.code shouldBe 200
@@ -108,7 +107,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
    *  endpoint the CCDN polls.  After the CCDN calls :submitted, the entry disappears from this
    *  list.  TAN is carried in the top-level "id" field of each Submission.Report entry.
    */
-  def awaitReportStatus(
+  def awaitReportStatusInDipNode(
     tan: String,
     expectedStatus: String,
     useCase: String,

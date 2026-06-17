@@ -24,7 +24,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     val tan = uploadFakeMvhRecordToDipnode(useCase = "mtb")
 
     // CCDN polls every 5 seconds; allow up to 60 s for the round-trip
-    awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 60_000L)
+    awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 60_000L)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
@@ -32,7 +32,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   it should "confirm an RD submission via the mock BfArM" in {
     val tan = uploadFakeMvhRecordToDipnode(useCase = "rd")
 
-    awaitReportStatus(tan, "Submitted", useCase = "rd", timeoutMs = 60_000L)
+    awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", timeoutMs = 60_000L)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
@@ -41,7 +41,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     val tans = (1 to 3).map(_ => uploadFakeMvhRecordToDipnode(useCase = "mtb"))
 
     tans.foreach { tan =>
-      awaitReportStatus(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
+      awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
     }
 
     // Each submission triggers exactly one BfArM call; beforeEach reset guarantees a clean baseline
@@ -57,11 +57,12 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     )
     val stubId = bfarmWiremock.addStub(faultStub)
     try {
-      val tan = uploadFakeMvhRecordToDipnode(useCase = "mtb")
+      val testTan:String = randomHex().replaceFirst("........","AAAAAAAA")
+      uploadFakeMvhRecordToDipnode(useCase = "mtb", intendedTan = testTan) shouldBe testTan
       // Allow 3+ CCDN polling cycles (5 s each) to attempt and fail the upload
       Thread.sleep(20_000L)
       // Report must still be present in the unsubmitted queue
-      awaitReportStatus(tan, "Unsubmitted", useCase = "mtb", timeoutMs = 5_000L)
+      awaitReportStatusInDipNode(testTan, "Unsubmitted", useCase = "mtb", timeoutMs = 5_000L)
       // CCDN must have attempted the upload at least once (exact count depends on timing)
       bfarmWiremock.requestCount(".*upload.*") should be >= 1
     } finally {
@@ -72,7 +73,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   it should "confirm an RD submission submitted to node2" in {
     val tan = uploadFakeMvhRecordToDipnode(useCase = "rd", client = node2)
 
-    awaitReportStatus(tan, "Submitted", useCase = "rd", client = node2)
+    awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", client = node2)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
