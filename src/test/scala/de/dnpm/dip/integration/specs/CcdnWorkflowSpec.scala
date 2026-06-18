@@ -51,7 +51,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   it should "leave a report in Unsubmitted state when BfArM is unreachable" in {
     // Override the normal bfarm-upload stub with a higher-priority 503 fault
     val faultStub = Json.obj(
-      "priority" -> 10,
+      "priority" -> 1,
       "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
       "response" -> Json.obj("status" -> 503, "body" -> "Service Unavailable")
     )
@@ -76,5 +76,9 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", client = node2)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
+  }
+
+  it should "record available and unavailable DIP sites in mongoDB accordingly" in {
+    pending
   }
 }
