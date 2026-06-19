@@ -137,7 +137,7 @@ class UploadSpec extends DipIntegrationSuite {
 
   it should "reject an MTB record posted to node2 (node2 is RD-only)" in {
     // The api-gateway always registers both MTB and RD routers regardless of
-    // ACTIVE_FEDERATED_QUERY_USE_CASES — that env var is not read by the app.
+    // ACTIVE_FEDERATED_QUERY_USE_CASES — that env var is only read by query services.
     // Node2's "RD-only" restriction is enforced at the broker/federated-query
     // layer (see FederatedQuerySpec), not at the ETL upload level.
     pending
