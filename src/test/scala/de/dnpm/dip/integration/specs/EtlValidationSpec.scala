@@ -24,10 +24,12 @@ class EtlValidationSpec extends DipIntegrationSuite {
     // Validation endpoint returns 200 with issue list, or 422 directly
     resp.code.code should (be >= 200 and be < 500)
     if (resp.code.code == 200) {
-      val issues = (Json.parse(resp.body.merge) \ "issues").asOpt[JsArray]
-        .orElse((Json.parse(resp.body.merge)).asOpt[JsArray])
-      // Expect at least one issue reported
-      issues.foreach(_.value.size should be > 0)
+      val body   = Json.parse(resp.body.merge)
+      val issues = (body \ "issues").asOpt[JsArray].orElse(body.asOpt[JsArray])
+      withClue("Expected at least one validation issue but issues was None or empty") {
+        issues shouldBe defined
+        issues.get.value.size should be > 0
+      }
     }
   }
 
