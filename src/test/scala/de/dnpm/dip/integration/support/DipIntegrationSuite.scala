@@ -92,7 +92,8 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
       eventually(timeoutMs = timeoutMs) {
         val resp = client.get(s"/$useCase/peer2peer/mvh/submission-reports?status=unsubmitted")
         resp.code.code shouldBe 200
-        val entries = (Json.parse(resp.body.merge) \ "entries").as[JsArray].value
+        val body    = resp.body.getOrElse(fail("Unexpected error body"))
+        val entries = (Json.parse(body) \ "entries").as[JsArray].value
         withClue(s"${useCase.toUpperCase} unsubmitted queue on ${client.baseUrl} still has ${entries.size} entries") {
           entries shouldBe empty
         }
@@ -118,7 +119,8 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     eventually(timeoutMs = timeoutMs) {
       val resp = client.get(s"/$useCase/peer2peer/mvh/submission-reports?status=unsubmitted")
       resp.code.code shouldBe 200
-      val entries = (Json.parse(resp.body.merge) \ "entries").as[JsArray].value
+      val body    = resp.body.getOrElse(fail("Unexpected error body"))
+      val entries = (Json.parse(body) \ "entries").as[JsArray].value
       val entry   = entries.find(r => (r \ "id").asOpt[String].contains(tan))
       expectedStatus match {
         case "Submitted" =>

@@ -130,7 +130,7 @@ class UploadSpec extends DipIntegrationSuite {
     withClue(s"GET /rd/peer2peer/mvh/submissions: ${rdResp.code} ${rdResp.body.merge}\n") {
       rdResp.code.code shouldBe 200
     }
-    val rdTans = (Json.parse(rdResp.body.merge) \ "entries").as[JsArray].value
+    val rdTans = (Json.parse(rdResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
       .flatMap(r => (r \ "metadata" \ "transferTAN").asOpt[String])
     rdTans should not contain mtbTan
   }

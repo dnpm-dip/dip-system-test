@@ -49,6 +49,6 @@ class DipNodeClient(val baseUrl: String) {
       .body(s"""{"grant_type":"client_credentials","client_id":"system","client_secret":"$clientSecret"}""")
       .send(backend)
     require(resp.code.isSuccess, s"Authup token request failed: ${resp.code} ${resp.body.merge}")
-    (Json.parse(resp.body.merge) \ "access_token").as[String]
+    (Json.parse(resp.body.getOrElse(throw new RuntimeException("Unexpected error body"))) \ "access_token").as[String]
   }
 }

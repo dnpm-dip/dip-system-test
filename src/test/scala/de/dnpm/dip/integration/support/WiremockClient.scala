@@ -17,7 +17,7 @@ class WiremockClient(adminBase: String) {
       .body(body)
       .send(backend)
     require(resp.code.isSuccess, s"Wiremock count failed: ${resp.code}")
-    (Json.parse(resp.body.merge) \ "count").as[Int]
+    (Json.parse(resp.body.getOrElse(throw new RuntimeException("Unexpected error body"))) \ "count").as[Int]
   }
 
   /** Reset all recorded requests (call in beforeEach / between tests that inspect counts). */
@@ -30,7 +30,7 @@ class WiremockClient(adminBase: String) {
   def allRequests(): JsArray = {
     val resp = basicRequest.get(uri"$adminBase/__admin/requests").send(backend)
     require(resp.code.isSuccess, s"Wiremock requests failed: ${resp.code}")
-    (Json.parse(resp.body.merge) \ "requests").as[JsArray]
+    (Json.parse(resp.body.getOrElse(throw new RuntimeException("Unexpected error body"))) \ "requests").as[JsArray]
   }
 
   /** Register a stub mapping; returns the generated stub ID for later removal. */
@@ -41,7 +41,7 @@ class WiremockClient(adminBase: String) {
       .body(mapping.toString())
       .send(backend)
     require(resp.code.isSuccess, s"Wiremock addStub failed: ${resp.code}")
-    (Json.parse(resp.body.merge) \ "id").as[String]
+    (Json.parse(resp.body.getOrElse(throw new RuntimeException("Unexpected error body"))) \ "id").as[String]
   }
 
   /** Remove a previously registered stub mapping by ID. */

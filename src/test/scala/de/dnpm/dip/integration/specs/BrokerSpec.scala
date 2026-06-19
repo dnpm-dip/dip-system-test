@@ -11,7 +11,7 @@ class BrokerSpec extends DipIntegrationSuite {
       resp.code.code shouldBe 200
     }
 
-    val json  = Json.parse(resp.body.merge)
+    val json  = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
     val sites = (json \ "sites").as[JsArray].value
 
     sites.size should be >= 2
@@ -23,7 +23,8 @@ class BrokerSpec extends DipIntegrationSuite {
 
   it should "include a virtualhost entry per site" in {
     val resp  = broker.get("/sites")
-    val sites = (Json.parse(resp.body.merge) \ "sites").as[JsArray].value
+    val body  = resp.body.getOrElse(fail("Unexpected error body"))
+    val sites = (Json.parse(body) \ "sites").as[JsArray].value
     sites.foreach { site =>
       (site \ "virtualhost").asOpt[String] shouldBe defined
     }
@@ -32,14 +33,14 @@ class BrokerSpec extends DipIntegrationSuite {
   "DIP node1" should "respond on the health / fake-data endpoint" in {
     val resp = node1.get("/mtb/fake/data/patient-record")
     resp.code.code shouldBe 200
-    val body = Json.parse(resp.body.merge)
+    val body = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
     (body \ "patient").isDefined shouldBe true
   }
 
   "DIP node2" should "respond on the health / fake-data endpoint" in {
     val resp = node2.get("/rd/fake/data/patient-record")
     resp.code.code shouldBe 200
-    val body = Json.parse(resp.body.merge)
+    val body = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
     (body \ "patient").isDefined shouldBe true
   }
 

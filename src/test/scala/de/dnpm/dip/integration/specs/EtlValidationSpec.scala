@@ -10,7 +10,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
   "ETL validation" should "return 200 for a well-formed patient record" in {
     val resp = node1.get("/mtb/fake/data/patient-record")
     resp.code.code shouldBe 200
-    val record = resp.body.merge
+    val record = resp.body.getOrElse(fail("Unexpected error body"))
 
     val validateResp = node1.post("/mtb/etl/patient-record:validate", record)
     withClue(s"Validation response: ${validateResp.body.merge}\n") {
@@ -24,7 +24,7 @@ class EtlValidationSpec extends DipIntegrationSuite {
     // Validation endpoint returns 200 with issue list, or 422 directly
     resp.code.code should (be >= 200 and be < 500)
     if (resp.code.code == 200) {
-      val body   = Json.parse(resp.body.merge)
+      val body   = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
       val issues = (body \ "issues").asOpt[JsArray].orElse(body.asOpt[JsArray])
       withClue("Expected at least one validation issue but issues was None or empty") {
         issues shouldBe defined
@@ -35,25 +35,36 @@ class EtlValidationSpec extends DipIntegrationSuite {
 
   // ─── Patient record delete ──────────────────────────────────────────────────
 
-  "ETL delete" should "remove a previously uploaded record" in {
-    // Upload a record and capture the patient ID
-    val (_, body) = generateFakeMvhSubmission(useCase = "mtb")
-    val patientId = (Json.parse(body) \ "patient" \ "id").as[String]
+  "ETL delete" should "remove a previously uploaded record upon request" in {
+    // Block CCDN from completing a BfArM submission during this test so that
+    // the queue entry disappearing is only attributable to the delete, not CCDN.
+    val faultStub = Json.obj(
+      "priority" -> 1,
+      "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
+      "response" -> Json.obj("status" -> 503, "body" -> "Service Unavailable")
+    )
+    val stubId = bfarmWiremock.addStub(faultStub)
+    try {
+      val (_, body) = generateFakeMvhSubmission(useCase = "mtb")
+      val patientId = (Json.parse(body) \ "patient" \ "id").as[String]
 
-    node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
+      node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
 
-    // Delete
-    val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
-    deleteResp.code.code should (be >= 200 and be < 300)
+      val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
+      deleteResp.code.code should (be >= 200 and be < 300)
 
-    // After deletion the submission report must not appear in the unsubmitted queue
-    val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
-    val reportsResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
-    reportsResp.code.code shouldBe 200
-    val reports = (Json.parse(reportsResp.body.merge) \ "entries").as[JsArray].value
-    val entry = reports.find(r => (r \ "id").asOpt[String].contains(tanFromBody))
-    withClue(s"Deleted record TAN=$tanFromBody still appears in unsubmitted report queue") {
-      entry shouldBe empty
+      // After deletion the submission report must not appear in the unsubmitted queue
+      val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
+      val reportsResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
+      reportsResp.code.code shouldBe 200
+      val responseBody = reportsResp.body.getOrElse(fail("Unexpected error body"))
+      val reports      = (Json.parse(responseBody) \ "entries").as[JsArray].value
+      val entry        = reports.find(r => (r \ "id").asOpt[String].contains(tanFromBody))
+      withClue(s"Deleted record TAN=$tanFromBody still appears in unsubmitted report queue") {
+        entry shouldBe empty
+      }
+    } finally {
+      bfarmWiremock.removeStub(stubId)
     }
   }
 
@@ -61,12 +72,11 @@ class EtlValidationSpec extends DipIntegrationSuite {
 
   it should "reject a second upload with the same patient ID but different TAN" in {
     val (_, firstBody) = generateFakeMvhSubmission(useCase = "mtb")
-    val patientId      = (Json.parse(firstBody) \ "patient" \ "id").as[String]
 
     node1.post("/mtb/etl/patient-record", firstBody).code.code shouldBe 200
 
     // Reuse same patient ID with a fresh TAN → conflict expected
-    val freshTan    = randomHex(32)
+    val freshTan    = randomHex()
     val secondBody  = (Json.parse(firstBody).as[JsObject] ++ Json.obj(
       "metadata" -> ((Json.parse(firstBody) \ "metadata").as[JsObject] ++ Json.obj(
         "type"        -> "initial",
