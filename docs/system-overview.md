@@ -17,7 +17,7 @@ The DNPM/DIP system is a distributed network for German molecular tumor boards a
           ┌────────────┴───────────────┐
           ▼                            ▼
 ┌─────────────────┐          ┌─────────────────┐
-│  DIP Node (UKT) │ ◄──────► │  DIP Node (UKL) │  (federated queries)
+│  DIP Node (UK1) │ ◄──────► │  DIP Node (UK2) │  (federated queries)
 │                 │          │                 │
 │ MySQL + Authup  │          │ MySQL + Authup  │
 │ api-gateway     │          │ api-gateway     │

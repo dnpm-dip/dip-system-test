@@ -87,7 +87,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
    *  assert exact BfArM upload counts so records from previous tests don't pollute the baseline.
    */
   def drainUnsubmittedQueuesAndResetCounters(timeoutMs: Long = 120_000L): Unit = {
-    // node1 (UKT) exports MTB + RD; node2 (UKL) exports RD only
+    // node1 (UK1) exports MTB + RD; node2 (UK2) exports RD only
     for ((client, useCase) <- List(node1 -> "mtb", node1 -> "rd", node2 -> "rd")) {
       eventually(timeoutMs = timeoutMs) {
         val resp = client.get(s"/$useCase/peer2peer/mvh/submission-reports?status=unsubmitted")

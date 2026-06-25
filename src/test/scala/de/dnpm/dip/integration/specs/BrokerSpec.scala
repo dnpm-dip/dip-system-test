@@ -18,8 +18,8 @@ class BrokerSpec extends DipIntegrationSuite {
     sites.size should be >= 2
 
     val ids = sites.flatMap(s => (s \ "id").asOpt[String])
-    ids should contain("UKT")
-    ids should contain("UKL")
+    ids should contain("UK1")
+    ids should contain("UK2")
   }
 
   it should "include a virtualhost entry per site" in {

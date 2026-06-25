@@ -7,12 +7,12 @@
     "RD": "TEST-RD-001"
   },
   "sites": {
-    "UKT": {
+    "UK1": {
       "submitterId": "260840108",
       "gdcId":       "GRZTUE002",
       "useCases":    ["RD"]
     },
-    "UKL": {
+    "UK2": {
       "submitterId": "261401052",
       "gdcId":       "GRZDD0004",
       "useCases":    ["RD"]

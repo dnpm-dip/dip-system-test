@@ -2,11 +2,11 @@
 #
 # Services:
 #   broker         - Local nginx broker (replaces https://dnpm.medizin.uni-tuebingen.de)
-#   node1-*        - DIP node 1: UKT:Tübingen (MTB + RD random data)
-#   node2-*        - DIP node 2: UKL:Leipzig  (RD random data)
+#   node1-*        - DIP node 1: UK1 (MTB + RD random data)
+#   node2-*        - DIP node 2: UK2 (RD random data)
 #   ccdn-mongodb   - MongoDB shared by both zKDK instances
-#   ccdn-mtb       - Central Data Node (zKDK) for MTB — polls UKT only
-#   ccdn-rd        - Central Data Node (zKDK) for RD  — polls UKT + UKL
+#   ccdn-mtb       - Central Data Node (zKDK) for MTB — polls UK1 only
+#   ccdn-rd        - Central Data Node (zKDK) for RD  — polls UK1 + UK2
 #   mock-bfarm     - Wiremock stub for the BfArM upload API
 #
 # Usage:
@@ -68,7 +68,7 @@ services:
       retries: 10
       start_period: 10s
 
-  # ─── DIP Node 1: UKT:Tübingen ────────────────────────────────────────────
+  # ─── DIP Node 1: UK1 ─────────────────────────────────────────────────────
   node1-mysql:
     image: mysql:9
     restart: unless-stopped
@@ -118,7 +118,7 @@ services:
       node1-authup:
         condition: service_healthy
     environment:
-      LOCAL_SITE: UKT:Tübingen
+      LOCAL_SITE: UK1:UK1
       MTB_RANDOM_DATA: ${MTB_RANDOM_DATA:-50}
       RD_RANDOM_DATA: ${RD_RANDOM_DATA:-50}
       HATEOAS_HOST: http://localhost:${NODE1_PORT:-8001}
@@ -132,7 +132,7 @@ services:
       - node1-backend-data:/dnpm_data
     networks: [integration]
 
-  # ─── DIP Node 2: UKL:Leipzig ─────────────────────────────────────────────
+  # ─── DIP Node 2: UK2 ─────────────────────────────────────────────────────
   node2-mysql:
     image: mysql:9
     restart: unless-stopped
@@ -182,7 +182,7 @@ services:
       node2-authup:
         condition: service_healthy
     environment:
-      LOCAL_SITE: UKL:Leipzig
+      LOCAL_SITE: UK2:UK2
       MTB_RANDOM_DATA: -1
       RD_RANDOM_DATA: ${RD_RANDOM_DATA:-50}
       HATEOAS_HOST: http://localhost:${NODE2_PORT:-8002}

@@ -52,7 +52,7 @@ Main operational config. Set via env var `CCDN_CONFIG_FILE` (default: `/ccdn_con
     "RD":  "KDKTUE002"
   },
   "sites": {
-    "UKT": {
+    "UK1": {
       "submitterId": "260840108",
       "gdcId":       "GRZTUE002",
       "useCases":    ["MTB", "RD"]
@@ -81,8 +81,8 @@ The CCDN talks to all DIP nodes through a single broker base URL. The broker mus
    ```json
    {
      "sites": [
-       { "id": "UKT", "name": "Tübingen", "virtualhost": "ukt.dnpm.de" },
-       { "id": "UKL", "name": "Leipzig",  "virtualhost": "ukl.dnpm.de" }
+       { "id": "UK1", "name": "UK1", "virtualhost": "uk1.dnpm.de" },
+       { "id": "UK2", "name": "UK2", "virtualhost": "uk2.dnpm.de" }
      ]
    }
    ```

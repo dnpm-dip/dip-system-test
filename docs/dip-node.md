@@ -30,7 +30,7 @@ Built from a pre-built distribution zip (`dnpm-dip-api-gateway-{VERSION}.zip`). 
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `LOCAL_SITE` | — | **Yes** | Format: `{SiteID}:{SiteName}`, e.g. `UKT:Tübingen` |
+| `LOCAL_SITE` | — | **Yes** | Format: `{SiteID}:{SiteName}`, e.g. `UK1:UK1` |
 | `AUTHUP_URL` | — | **Yes** | Authup connection string: `client://system:{secret}@http://authup:3000` |
 | `HATEOAS_HOST` | — | **Yes** | Public base URL for hypermedia links, e.g. `http://localhost/api` |
 | `CONNECTOR_TYPE` | `broker` | No | `broker` or `peer2peer` |
@@ -66,8 +66,8 @@ Connector configuration. Choose one mode:
 <?xml version="1.0" encoding="UTF-8"?>
 <Config>
   <Connector>
-    <Peer id="UKT" name="Tübingen" baseUrl="http://node1-backend:9000"/>
-    <Peer id="UKL" name="Leipzig"  baseUrl="http://node2-backend:9000"/>
+    <Peer id="UK1" name="UK1" baseUrl="http://node1-backend:9000"/>
+    <Peer id="UK2" name="UK2" baseUrl="http://node2-backend:9000"/>
     <Timeout seconds="30"/>
   </Connector>
 </Config>

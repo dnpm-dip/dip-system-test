@@ -10,8 +10,8 @@ import org.bson.Document
  *
  *  The test environment mirrors the production split: two separate zKDK instances,
  *  one per use case, sharing a single MongoDB for convenience (production uses separate DBs).
- *    ccdn-mtb  — polls UKT for MTB submissions only
- *    ccdn-rd   — polls UKT + UKL for RD submissions only
+ *    ccdn-mtb  — polls UK1 for MTB submissions only
+ *    ccdn-rd   — polls UK1 + UK2 for RD submissions only
  *
  *  Flow under test:
  *    DIP node receives ETL upload
@@ -137,21 +137,21 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
 
     // By the time this test runs the CCDN has been polling for minutes; both sites must
     // have at least one "fully" record.
-    withClue("UKT (node1) should be recorded as fully available in MongoDB") {
-      mongoCount("""{"site":"UKT","responsivity":"fully"}""") should be > 0
+    withClue("UK1 (node1) should be recorded as fully available in MongoDB") {
+      mongoCount("""{"site":"UK1","responsivity":"fully"}""") should be > 0
     }
-    withClue("UKL (node2) should be recorded as fully available in MongoDB") {
-      mongoCount("""{"site":"UKL","responsivity":"fully"}""") should be > 0
+    withClue("UK2 (node2) should be recorded as fully available in MongoDB") {
+      mongoCount("""{"site":"UK2","responsivity":"fully"}""") should be > 0
     }
 
-    // Pause node1-backend to simulate UKT going offline.
+    // Pause node1-backend to simulate UK1 going offline.
     DockerCompose.pauseService("node1-backend")
     try {
       // CCDN_BROKER_CONNECTOR_TIMEOUT is 10 s; add one more poll period (5 s) for margin.
       Thread.sleep(20_000L)
 
-      withClue("UKT (node1) should be recorded as offline in MongoDB while paused") {
-        mongoCount("""{"site":"UKT","responsivity":"offline"}""") should be > 0
+      withClue("UK1 (node1) should be recorded as offline in MongoDB while paused") {
+        mongoCount("""{"site":"UK1","responsivity":"offline"}""") should be > 0
       }
     } finally {
       DockerCompose.unpauseService("node1-backend")

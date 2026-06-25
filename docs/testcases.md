@@ -4,14 +4,14 @@
 
 ## Connectivity / broker (`BrokerSpec`)
 
-- ✓ `GET /sites` returns a JSON array containing both UKT and UKL
+- ✓ `GET /sites` returns a JSON array containing both UK1 and UK2
 - ✓ Each site entry includes a `virtualhost` field
 - ✓ Node1 health / fake-data endpoint responds with 200 and a patient record
 - ✓ Node2 health / fake-data endpoint responds with 200 and a patient record
 - ✓ Node1 exposes the peer2peer status / version endpoint
 - ✓ Node2 exposes the peer2peer status / version endpoint
 - CCDN version check (`GET /api/peer2peer/meta-info`) returns ≥ 1.3 for both nodes
-- Broker routes by `Host` header: `ukt.test` → node1, `ukl.test` → node2
+- Broker routes by `Host` header: `uk1.test` → node1, `uk2.test` → node2
 
 ## ETL / validation (`EtlValidationSpec`)
 
@@ -42,8 +42,8 @@
 - ✓ MTB query returns a query ID with status 200
 - ✓ MTB query returns patient matches from at least node1
 - ✓ MTB query does not contact node2 (node2 is RD-only)
-- ✓ [counter] MTB query: UKT (node1) is listed as online in the peers response (guards against the UKL-absence check passing on an empty peers list)
-- ✓ RD query returns results from both UKT and UKL
+- ✓ [counter] MTB query: UK1 (node1) is listed as online in the peers response (guards against the UK2-absence check passing on an empty peers list)
+- ✓ RD query returns results from both UK1 and UK2
 - ✓ [counter] RD query: patient match count is > 0 (guards against both peers being listed but returning no data)
 - ✓ Query without authentication → 4xx
 - ✓ `GET /query/{unknownId}` → 404
@@ -60,7 +60,7 @@
 - ✓ Mock BfArM returns 503 → CCDN does not call `:submitted`; report stays `Unsubmitted`
 - ✓ [counter] BfArM upload request body contains the TAN of the specific record that was uploaded (guards against CCDN sending a hardcoded or empty payload)
 - ✓ Both sites recorded as `fully` available in MongoDB after normal polling
-- ✓ Node1 paused → CCDN records UKT as `offline` in MongoDB
+- ✓ Node1 paused → CCDN records UK1 as `offline` in MongoDB
 - ✓ ccdn-mtb paused → RD submission gets `Submitted` by ccdn-rd; MTB submission stays `Unsubmitted`; MTB is processed after ccdn-mtb recovers
 - Calling `:submitted` on an already-submitted report is idempotent (no error)
 - One DIP node stopped → CCDN still polls and submits the remaining node successfully

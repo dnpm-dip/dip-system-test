@@ -5,8 +5,8 @@ import play.api.libs.json._
 
 /** Tests for the federated query flow.
  *
- *  node1 (UKT): MTB + RD data, ACTIVE_FEDERATED_QUERY_USE_CASES=MTB,RD
- *  node2 (UKL): RD only,       ACTIVE_FEDERATED_QUERY_USE_CASES=RD
+ *  node1 (UK1): MTB + RD data, ACTIVE_FEDERATED_QUERY_USE_CASES=MTB,RD
+ *  node2 (UK2): RD only,       ACTIVE_FEDERATED_QUERY_USE_CASES=RD
  *
  *  Query submission requires an auth token (Authup client-credentials grant).
  *
@@ -64,15 +64,15 @@ class FederatedQuerySpec extends DipIntegrationSuite {
     resp.code.code shouldBe 200
 
     val json = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
-    // peers shows which sites were contacted; UKL is RD-only so should not be online for MTB
+    // peers shows which sites were contacted; UK2 is RD-only so should not be online for MTB
     val onlineSites = (json \ "peers").asOpt[JsArray]
       .map(_.value.filter(p => (p \ "status").asOpt[String].contains("online"))
                   .flatMap(p => (p \ "site" \ "code").asOpt[String]))
       .getOrElse(Seq.empty)
 
-    onlineSites should not contain "UKL"
-    // Counter: UKT must actually be online — guards against an empty peers list making the above trivially true
-    onlineSites should contain("UKT")
+    onlineSites should not contain "UK2"
+    // Counter: UK1 must actually be online — guards against an empty peers list making the above trivially true
+    onlineSites should contain("UK1")
   }
 
   // ─── RD queries ────────────────────────────────────────────────────────────
@@ -91,8 +91,8 @@ class FederatedQuerySpec extends DipIntegrationSuite {
       .getOrElse(Seq.empty)
 
     // Both nodes export RD
-    siteIds should contain("UKT")
-    siteIds should contain("UKL")
+    siteIds should contain("UK1")
+    siteIds should contain("UK2")
 
     // Counter: verify actual patient data flows back, not just peer contact
     val matchesResp = node1.get(s"/rd/queries/$queryId/patient-matches", Some(token1))
