@@ -28,7 +28,7 @@
 - ✓ `FollowUp` without a prior `Initial` for the same TAN → rejected (4xx)
 - ✓ `Correction` after an `Initial` → accepted (200)
 - ✓ `ConsentRevocation` → patient record removed from the dataset
-- ✓ [counter] `ConsentRevocation`: TAN is absent from the unsubmitted queue after revocation (removal currently not verified, only the 2xx response is checked)
+- ✓ [counter] `ConsentRevocation`: revocation TAN appears in the unsubmitted queue after upload, proving it was persisted and not silently dropped (note: the original initial TAN remains in the queue — patient data is deleted but queue entries are not cleaned up)
 - ✓ `Test` submission type → accepted (200)
 - ✓ MTB record uploaded to node1 does not appear in node2's RD submission report list
 - ✓ [counter] RD record uploaded to node1 appears in the RD submission report list (guards against the MTB-isolation test passing on an always-empty RD list)

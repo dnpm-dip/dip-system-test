@@ -119,24 +119,42 @@ class EtlUploadSpec extends DipIntegrationSuite {
         )),
         "provisions" -> Json.arr(Json.obj("type" -> "deny")),
       )
-      val revoked = json.as[JsObject] ++ Json.obj(
+      val revocationBody = json.as[JsObject] ++ Json.obj(
         "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj(
           "type"        -> "correction",
           "transferTAN" -> freshTan,
         )),
         "consent"  -> denyConsent,
       )
-      val resp = node1.post("/mtb/etl/patient-record", revoked.toString())
+      val resp = node1.post("/mtb/etl/patient-record", revocationBody.toString())
       withClue(s"consent revocation upload: ${resp.code} ${resp.body.merge}\n") {
         resp.code.code should (be >= 200 and be < 300)
       }
 
-      // Counter: patient deletion must remove the initial submission report from the queue
+      // Counter: both the initial and the revocation must appear in the queue.
+      // (Patient data is deleted on revocation, but queue entries are not cleaned up.)
+      // Verify they are linked: same patient, correct submission types, revocation carries consent-revocation metadata.
+      val patientId = (Json.parse(initialBody) \ "patient" \ "id").as[String]
+
       val queueResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
       queueResp.code.code shouldBe 200
-      val entries = (Json.parse(queueResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
-      withClue(s"Initial TAN=$initialTan should be absent from the unsubmitted queue after consent revocation") {
-        entries.exists(r => (r \ "id").asOpt[String].contains(initialTan)) shouldBe false
+      val reportQueueEntries = (Json.parse(queueResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
+
+      val retrievedInitialEntry = reportQueueEntries.find(r => (r \ "id").asOpt[String].contains(initialTan))
+        .getOrElse(fail(s"Initial TAN=$initialTan not found in queue"))
+      val retrievedRevocationEntry = reportQueueEntries.find(r => (r \ "id").asOpt[String].contains(freshTan))
+        .getOrElse(fail(s"Revocation TAN=$freshTan not found in queue"))
+
+      withClue("Both entries must reference the same patient") {
+        (retrievedInitialEntry    \ "patient").asOpt[String] shouldBe Some(patientId)
+        (retrievedRevocationEntry \ "patient").asOpt[String] shouldBe Some(patientId)
+      }
+      withClue("Submission types must be 'initial' and 'correction' respectively") {
+        (retrievedInitialEntry    \ "type").asOpt[String] shouldBe Some("initial")
+        (retrievedRevocationEntry \ "type").asOpt[String] shouldBe Some("correction")
+      }
+      withClue("Revocation entry must carry consentRevocation metadata") {
+        (retrievedRevocationEntry \ "consentRevocation").toOption shouldBe defined
       }
     } finally {
       bfarmWiremock.removeStub(ccdnBlockingStubId)
