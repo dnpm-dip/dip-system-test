@@ -1,6 +1,6 @@
 package de.dnpm.dip.integration.specs
 
-import de.dnpm.dip.integration.support.DipIntegrationSuite
+import de.dnpm.dip.integration.support.{DipIntegrationSuite, DipNodeClient}
 import play.api.libs.json._
 
 /** Tests for the local nginx broker used in the test environment. */
@@ -31,27 +31,25 @@ class BrokerSpec extends DipIntegrationSuite {
     }
   }
 
-  "DIP node1" should "respond on the health / fake-data endpoint" in {
-    val resp = node1.get("/mtb/fake/data/patient-record")
-    resp.code.code shouldBe 200
-    val body = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
-    (body \ "patient").isDefined shouldBe true
-  }
+  // ─── Per-node smoke tests ─────────────────────────────────────────────────
 
-  "DIP node2" should "respond on the health / fake-data endpoint" in {
-    val resp = node2.get("/rd/fake/data/patient-record")
-    resp.code.code shouldBe 200
-    val body = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
-    (body \ "patient").isDefined shouldBe true
-  }
+  private val nodeFixtures: List[(String, DipNodeClient, String)] = List(
+    ("DIP node1", node1, "mtb"),
+    ("DIP node2", node2, "rd"),
+  )
 
-  "DIP node1" should "expose the peer2peer status / version endpoint" in {
-    val resp = node1.get("/mtb/peer2peer/mvh/submissions")
-    resp.code.code shouldBe 200
-  }
+  for ((nodeName, client, useCase) <- nodeFixtures) {
 
-  "DIP node2" should "expose the peer2peer status / version endpoint" in {
-    val resp = node2.get("/rd/peer2peer/mvh/submissions")
-    resp.code.code shouldBe 200
+    nodeName should "respond on the health / fake-data endpoint" in {
+      val resp = client.get(s"/$useCase/fake/data/patient-record")
+      resp.code.code shouldBe 200
+      val body = Json.parse(resp.body.getOrElse(fail("Unexpected error body")))
+      (body \ "patient").isDefined shouldBe true
+    }
+
+    nodeName should "expose the peer2peer status / version endpoint" in {
+      val resp = client.get(s"/$useCase/peer2peer/mvh/submissions")
+      resp.code.code shouldBe 200
+    }
   }
 }

@@ -93,12 +93,13 @@ class EtlUploadSpec extends DipIntegrationSuite {
 
   it should "accept a ConsentRevocation and remove the patient from the data set" in {
     // Block CCDN so that queue changes are only attributable to the revocation, not CCDN processing.
-    val faultStub = Json.obj(
+    val ccdnBlockingStub = Json.obj(
       "priority" -> 1,
       "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
       "response" -> Json.obj("status" -> 503, "body" -> "Service Unavailable")
     )
-    val stubId = bfarmWiremock.addStub(faultStub)
+    val ccdnBlockingStubId = bfarmWiremock.addStub(ccdnBlockingStub)
+
     try {
       val (initialTan, initialBody) = generateFakeMvhSubmission("mtb")
       val initialResp = node1.post("/mtb/etl/patient-record", initialBody)
@@ -138,7 +139,7 @@ class EtlUploadSpec extends DipIntegrationSuite {
         entries.exists(r => (r \ "id").asOpt[String].contains(initialTan)) shouldBe false
       }
     } finally {
-      bfarmWiremock.removeStub(stubId)
+      bfarmWiremock.removeStub(ccdnBlockingStubId)
     }
   }
 
