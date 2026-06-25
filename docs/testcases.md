@@ -61,5 +61,6 @@
 - ✓ [counter] BfArM upload request body contains the TAN of the specific record that was uploaded (guards against CCDN sending a hardcoded or empty payload)
 - ✓ Both sites recorded as `fully` available in MongoDB after normal polling
 - ✓ Node1 paused → CCDN records UKT as `offline` in MongoDB
+- ✓ ccdn-mtb paused → RD submission gets `Submitted` by ccdn-rd; MTB submission stays `Unsubmitted`; MTB is processed after ccdn-mtb recovers
 - Calling `:submitted` on an already-submitted report is idempotent (no error)
 - One DIP node stopped → CCDN still polls and submits the remaining node successfully

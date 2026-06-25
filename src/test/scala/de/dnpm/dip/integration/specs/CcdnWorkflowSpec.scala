@@ -8,12 +8,17 @@ import org.bson.Document
 
 /** Tests for the CCDN (zKDK) polling and BfArM submission workflow.
  *
+ *  The test environment mirrors the production split: two separate zKDK instances,
+ *  one per use case, sharing a single MongoDB for convenience (production uses separate DBs).
+ *    ccdn-mtb  — polls UKT for MTB submissions only
+ *    ccdn-rd   — polls UKT + UKL for RD submissions only
+ *
  *  Flow under test:
  *    DIP node receives ETL upload
  *    → creates SubmissionReport with status=Unsubmitted
- *    → CCDN polls and discovers the new report (5-second interval in test config)
- *    → CCDN fetches full report, uploads to mock BfArM
- *    → CCDN calls :submitted back to DIP node
+ *    → responsible zKDK polls and discovers the new report (5-second interval in test config)
+ *    → zKDK fetches full report, uploads to mock BfArM
+ *    → zKDK calls :submitted back to DIP node
  *    → DIP node updates report status to Submitted
  */
 class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
@@ -93,6 +98,28 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", client = node2, 60_000L)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
+  }
+
+  it should "only process its own use case when the other zKDK is offline" in {
+    // Pause the MTB zKDK so only the RD zKDK is running.
+    DockerCompose.pauseService("ccdn-mtb")
+    var mtbTan: Option[String] = None
+    try {
+      mtbTan    = Some(uploadFakeMvhRecordToDipnode(useCase = "mtb"))
+      val rdTan = uploadFakeMvhRecordToDipnode(useCase = "rd")
+
+      // The RD zKDK must process the RD submission normally.
+      awaitReportStatusInDipNode(rdTan, "Submitted", useCase = "rd", timeoutMs = 60_000L)
+      bfarmWiremock.requestCount(".*upload.*") shouldBe 1
+
+      // The MTB submission must remain untouched while ccdn-mtb is paused.
+      // By now at least one RD polling cycle has completed, so enough time has elapsed.
+      awaitReportStatusInDipNode(mtbTan.get, "Unsubmitted", useCase = "mtb", timeoutMs = 5_000L)
+    } finally {
+      DockerCompose.unpauseService("ccdn-mtb")
+      // After recovery ccdn-mtb must pick up and submit the pending MTB report.
+      mtbTan.foreach(awaitReportStatusInDipNode(_, "Submitted", useCase = "mtb", timeoutMs = 60_000L))
+    }
   }
 
   it should "record available and unavailable DIP sites in mongoDB accordingly" in {
