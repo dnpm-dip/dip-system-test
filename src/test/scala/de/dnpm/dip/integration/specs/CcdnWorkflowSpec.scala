@@ -3,6 +3,8 @@ package de.dnpm.dip.integration
 import play.api.libs.json._
 import org.scalatest.BeforeAndAfterEach
 import scala.sys.process._
+import com.mongodb.client.MongoClients
+import org.bson.Document
 
 /** Tests for the CCDN (zKDK) polling and BfArM submission workflow.
  *
@@ -81,19 +83,16 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   }
 
   it should "record available and unavailable DIP sites in mongoDB accordingly" in {
-    // Query MongoDB via docker compose exec — no port needs to be exposed on the host.
-    // Returns the count of documents matching the given Mongo filter expression.
     def mongoCount(filter: String): Int = {
-      val out = Seq(
-        "docker", "compose", "exec", "-T", "ccdn-mongodb",
-        "mongosh", "--quiet",
-        "--eval", s"print(db.siteAvailabilityReports.countDocuments($filter))",
-        "ccdn"
-      ).!!
-      // mongosh --quiet may still emit ANSI escapes; extract the last numeric line.
-      out.split("\\n").map(_.trim).filter(_.matches("\\d+")).lastOption
-        .getOrElse(fail(s"No numeric output from mongosh for filter $filter; raw output: $out"))
-        .toInt
+      val client = MongoClients.create("mongodb://localhost:27017")
+      try {
+        client.getDatabase("ccdn")
+          .getCollection("siteAvailabilityReports")
+          .countDocuments(Document.parse(filter))
+          .toInt
+      } finally {
+        client.close()
+      }
     }
 
     // By the time this test runs the CCDN has been polling for minutes; both sites must
