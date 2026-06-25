@@ -1,4 +1,4 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.support
 
 import sttp.client3._
 import sttp.model.Uri

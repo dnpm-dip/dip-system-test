@@ -1,5 +1,6 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.specs
 
+import de.dnpm.dip.integration.support.DipIntegrationSuite
 import play.api.libs.json._
 
 /** Tests for ETL upload business rules at the DIP node. */

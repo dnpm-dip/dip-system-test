@@ -1,4 +1,4 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.support
 
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
@@ -28,7 +28,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
 
   // ─── Polling helper ────────────────────────────────────────────────────────
 
-  def eventually[A](timeoutMs: Long = 60_000L, intervalMs: Long = 2_000L)(f: => A): A = {
+  def eventually[A](timeoutMs: Long, intervalMs: Long = 2_000L)(f: => A): A = {
     val deadline = System.currentTimeMillis() + timeoutMs
     var lastEx: Throwable = new RuntimeException("eventually: never attempted")
     while (System.currentTimeMillis() < deadline) {
@@ -113,7 +113,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     expectedStatus: String,
     useCase: String,
     client: DipNodeClient = node1,
-    timeoutMs: Long     = 60_000L,
+    timeoutMs: Long
   ): Unit = {
     require(Set("mtb","rd").contains(useCase))
     eventually(timeoutMs = timeoutMs) {

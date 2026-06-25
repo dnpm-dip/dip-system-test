@@ -17,4 +17,4 @@ Test / fork              := true
 // process is killed before the run completes, making timeouts look like deadlocks.
 Test / logBuffered       := false
 // Run only the top-level wrapper so individual specs are not discovered and double-run.
-Test / testOptions += Tests.Filter(_ == "de.dnpm.dip.integration.IntegrationTests")
+Test / testOptions += Tests.Filter(_ == "de.dnpm.dip.integration.specs.IntegrationTests")

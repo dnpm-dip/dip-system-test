@@ -1,4 +1,4 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.support
 
 import play.api.libs.json._
 import sttp.client3._

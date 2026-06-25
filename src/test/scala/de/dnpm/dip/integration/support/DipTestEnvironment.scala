@@ -1,6 +1,5 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.support
 
-import scala.sys.process._
 import scala.util.Try
 
 /** Manages the Docker Compose stack for all integration tests.
@@ -29,12 +28,11 @@ object DipTestEnvironment {
 
   private def startStack(): Unit = {
     println("[DipTestEnvironment] Starting Docker Compose stack…")
-    val code = Seq("docker", "compose", "up", "-d").!
-    require(code == 0, s"docker compose up failed (exit $code)")
+    DockerCompose.up()
 
     Runtime.getRuntime.addShutdownHook(new Thread(() => {
       println("[DipTestEnvironment] Tearing down Docker Compose stack…")
-      Seq("docker", "compose", "down").!
+      DockerCompose.down()
     }))
   }
 

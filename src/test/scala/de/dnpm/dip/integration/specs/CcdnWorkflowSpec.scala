@@ -1,9 +1,9 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.specs
 
 import play.api.libs.json._
 import org.scalatest.BeforeAndAfterEach
-import scala.sys.process._
 import com.mongodb.client.MongoClients
+import de.dnpm.dip.integration.support.{DipIntegrationSuite, DockerCompose}
 import org.bson.Document
 
 /** Tests for the CCDN (zKDK) polling and BfArM submission workflow.
@@ -77,7 +77,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
   it should "confirm an RD submission submitted to node2" in {
     val tan = uploadFakeMvhRecordToDipnode(useCase = "rd", client = node2)
 
-    awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", client = node2)
+    awaitReportStatusInDipNode(tan, "Submitted", useCase = "rd", client = node2, 60_000L)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
   }
@@ -105,7 +105,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     }
 
     // Pause node1-backend to simulate UKT going offline.
-    Seq("docker", "compose", "pause", "node1-backend").!
+    DockerCompose.pauseService("node1-backend")
     try {
       // CCDN_BROKER_CONNECTOR_TIMEOUT is 10 s; add one more poll period (5 s) for margin.
       Thread.sleep(20_000L)
@@ -114,7 +114,7 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
         mongoCount("""{"site":"UKT","responsivity":"offline"}""") should be > 0
       }
     } finally {
-      Seq("docker", "compose", "unpause", "node1-backend").!
+      DockerCompose.unpauseService("node1-backend")
       // Wait until node1 responds again so it does not affect subsequent test suites.
       eventually(timeoutMs = 60_000L) {
         node1.get("/mtb/fake/data/patient-record").code.code should (be >= 200 and be < 300)

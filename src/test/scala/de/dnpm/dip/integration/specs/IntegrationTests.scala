@@ -1,4 +1,4 @@
-package de.dnpm.dip.integration
+package de.dnpm.dip.integration.specs
 
 import org.scalatest.Suites
 
