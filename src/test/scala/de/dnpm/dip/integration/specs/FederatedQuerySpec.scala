@@ -71,6 +71,8 @@ class FederatedQuerySpec extends DipIntegrationSuite {
       .getOrElse(Seq.empty)
 
     onlineSites should not contain "UKL"
+    // Counter: UKT must actually be online — guards against an empty peers list making the above trivially true
+    onlineSites should contain("UKT")
   }
 
   // ─── RD queries ────────────────────────────────────────────────────────────
@@ -91,6 +93,23 @@ class FederatedQuerySpec extends DipIntegrationSuite {
     // Both nodes export RD
     siteIds should contain("UKT")
     siteIds should contain("UKL")
+
+    // Counter: verify actual patient data flows back, not just peer contact
+    val matchesResp = node1.get(s"/rd/queries/$queryId/patient-matches", Some(token1))
+    matchesResp.code.code shouldBe 200
+    val matchesBody = Json.parse(matchesResp.body.getOrElse(fail("Unexpected error body")))
+    val total = (matchesBody \ "size").asOpt[Int]
+      .orElse((matchesBody \ "total").asOpt[Int])
+      .getOrElse {
+        matchesBody match {
+          case obj: JsObject => (obj \ "entries").asOpt[JsArray].map(_.value.size).getOrElse(0)
+          case arr: JsArray  => arr.value.size
+          case _             => 0
+        }
+      }
+    withClue("RD query should return patient matches from both nodes, not just peer contact") {
+      total should be > 0
+    }
   }
 
   // ─── Edge cases ─────────────────────────────────────────────────────────────

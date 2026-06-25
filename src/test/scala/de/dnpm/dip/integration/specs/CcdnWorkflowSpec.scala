@@ -30,6 +30,19 @@ class CcdnWorkflowSpec extends DipIntegrationSuite with BeforeAndAfterEach {
     awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 60_000L)
 
     bfarmWiremock.requestCount(".*upload.*") shouldBe 1
+
+    // Counter: the request body sent to BfArM must contain the TAN of the record we uploaded,
+    // proving CCDN forwarded actual data rather than a hardcoded or empty payload.
+    val uploadRequests = bfarmWiremock.allRequests().value
+      .filter(r => (r \ "request" \ "url").asOpt[String].exists(_.contains("upload")))
+    val body = uploadRequests.headOption
+      .flatMap(r => (r \ "request" \ "body").asOpt[String]
+        .orElse((r \ "request" \ "bodyAsBase64").asOpt[String]
+          .map(b64 => new String(java.util.Base64.getDecoder.decode(b64)))))
+      .getOrElse(fail("No body found in BfArM upload request"))
+    withClue(s"BfArM upload body should contain TAN=$tan") {
+      body should include(tan)
+    }
   }
 
   it should "confirm an RD submission via the mock BfArM" in {

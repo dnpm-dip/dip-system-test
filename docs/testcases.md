@@ -1,38 +1,65 @@
-# Testcases
-## Uploads
-- Upload in DIP node A happens. Expect a report to show up in a mock BfArM API and a feedback report
-	- Polling interval should be minimal for that
-- Duplicate TAN: upload the same `transferTAN` twice → expect 400 rejection on the second
-- `Followup` without prior `Initial` for the same patient/episode → expect rejection
-- `Initial` → second `Initial` for the same episode → expect rejection
-- `Test` submission type: should not influence consent-check logic (filtered out from prior submission history)
-- `ConsentRevocation` upload: patient record should be removed from the federated query index
-- Upload for both MTB and RD use cases for the same patient → two independent report chains
+# Test cases
 
-## CCDN confirmation flow
-- After CCDN confirms to BfArM and calls `POST …/submission-reports/{id}:submitted`, the DIP node marks the report as `Submitted` — re-fetching with `?status=Unsubmitted` should no longer include it
-- Mock BfArM returns a non-2xx error → CCDN must NOT call `:submitted` back; report stays `Unsubmitted` and is picked up on the next polling cycle
-- Calling `:submitted` on an already-submitted report is idempotent (no error)
+`✓` = implemented in the integration test suite.
 
-## Multi-submission sequence
-- `Initial` → `Followup` for the same patient/episode → two reports, both appear in CCDN polling
-- `Initial` → `ConsentRevocation` → record deleted from query index
+## Connectivity / broker (`BrokerSpec`)
 
-## Federated query
-- Upload in DIP node A happens. Query in DIP node B happens
-	- Case 1: Matching query. Results should match
-	- Case 2: no match in query. Expect empty result
-- Data in both node A and B; query from node A → aggregated results from both nodes
-- Query before any upload → empty result
-- Query after consent revocation → revoked patient's record excluded from results
-- MTB query returns only MTB data, RD query returns only RD data (no cross-contamination)
-
-## Connectivity / broker
+- ✓ `GET /sites` returns a JSON array containing both UKT and UKL
+- ✓ Each site entry includes a `virtualhost` field
+- ✓ Node1 health / fake-data endpoint responds with 200 and a patient record
+- ✓ Node2 health / fake-data endpoint responds with 200 and a patient record
+- ✓ Node1 exposes the peer2peer status / version endpoint
+- ✓ Node2 exposes the peer2peer status / version endpoint
 - CCDN version check (`GET /api/peer2peer/meta-info`) returns ≥ 1.3 for both nodes
-- One DIP node is stopped → CCDN still successfully polls and processes the remaining node
 - Broker routes by `Host` header: `ukt.test` → node1, `ukl.test` → node2
 
-## ETL / validation
-- `POST /etl/patient-record:validate` with a valid record → 200 with no errors
-- `POST /etl/patient-record:validate` with a malformed record → validation errors returned without persisting anything
-- `DELETE /etl/patient/{id}` → patient no longer appears in federated query results from either node
+## ETL / validation (`EtlValidationSpec`)
+
+- ✓ `POST …:validate` with a well-formed record → 200 with no issues
+- ✓ `POST …:validate` with a malformed record (missing required field) → issues returned, nothing persisted
+- ✓ `DELETE /etl/patient/{id}` → record no longer appears in submission reports
+- ✓ Second upload with same patient ID but a different TAN → rejected (4xx)
+- ✓ [counter] `DELETE /etl/patient/{id}`: TAN is present in the unsubmitted queue *before* deletion, absent *after* (precondition currently unverified)
+
+## Uploads (`EtlUploadSpec`)
+
+- ✓ Duplicate TAN: second upload with the same `transferTAN` → rejected (4xx)
+- ✓ Second `Initial` for the same `EpisodeOfCare` → rejected (4xx)
+- ✓ `FollowUp` without a prior `Initial` for the same TAN → rejected (4xx)
+- ✓ `Correction` after an `Initial` → accepted (200)
+- ✓ `ConsentRevocation` → patient record removed from the dataset
+- ✓ [counter] `ConsentRevocation`: TAN is absent from the unsubmitted queue after revocation (removal currently not verified, only the 2xx response is checked)
+- ✓ `Test` submission type → accepted (200)
+- ✓ MTB record uploaded to node1 does not appear in node2's RD submission report list
+- ✓ [counter] RD record uploaded to node1 appears in the RD submission report list (guards against the MTB-isolation test passing on an always-empty RD list)
+- ✓ MTB record posted to node2 (RD-only) → rejected (4xx)
+- `Initial` → `FollowUp` for the same patient/episode → two reports, both appear in CCDN polling
+- `Test` submission type excluded from prior-submission history used in consent-check logic
+- Upload for both MTB and RD use cases for the same patient → two independent report chains
+
+## Federated query (`FederatedQuerySpec`)
+
+- ✓ MTB query returns a query ID with status 200
+- ✓ MTB query returns patient matches from at least node1
+- ✓ MTB query does not contact node2 (node2 is RD-only)
+- ✓ [counter] MTB query: UKT (node1) is listed as online in the peers response (guards against the UKL-absence check passing on an empty peers list)
+- ✓ RD query returns results from both UKT and UKL
+- ✓ [counter] RD query: patient match count is > 0 (guards against both peers being listed but returning no data)
+- ✓ Query without authentication → 4xx
+- ✓ `GET /query/{unknownId}` → 404
+- Query after consent revocation → revoked patient excluded from results
+- No-match query → empty result set (not just an error)
+- Query before any upload → empty result
+
+## CCDN workflow (`CcdnWorkflowSpec`)
+
+- ✓ MTB upload → CCDN polls, uploads to mock BfArM, calls `:submitted` → report status becomes `Submitted`
+- ✓ RD upload on node1 → same round-trip as MTB
+- ✓ RD upload on node2 → same round-trip
+- ✓ Three concurrent MTB uploads → each triggers exactly one BfArM call, all reach `Submitted`
+- ✓ Mock BfArM returns 503 → CCDN does not call `:submitted`; report stays `Unsubmitted`
+- ✓ [counter] BfArM upload request body contains the TAN of the specific record that was uploaded (guards against CCDN sending a hardcoded or empty payload)
+- ✓ Both sites recorded as `fully` available in MongoDB after normal polling
+- ✓ Node1 paused → CCDN records UKT as `offline` in MongoDB
+- Calling `:submitted` on an already-submitted report is idempotent (no error)
+- One DIP node stopped → CCDN still polls and submits the remaining node successfully

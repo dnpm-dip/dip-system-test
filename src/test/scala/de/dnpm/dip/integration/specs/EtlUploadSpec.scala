@@ -4,7 +4,7 @@ import de.dnpm.dip.integration.support.DipIntegrationSuite
 import play.api.libs.json._
 
 /** Tests for ETL upload business rules at the DIP node. */
-class UploadSpec extends DipIntegrationSuite {
+class EtlUploadSpec extends DipIntegrationSuite {
 
   // ─── Duplicate TAN ─────────────────────────────────────────────────────────
 
@@ -92,34 +92,53 @@ class UploadSpec extends DipIntegrationSuite {
   // ─── Consent revocation ────────────────────────────────────────────────────
 
   it should "accept a ConsentRevocation and remove the patient from the data set" in {
-    val (_, initialBody) = generateFakeMvhSubmission("mtb")
-    val initialResp = node1.post("/mtb/etl/patient-record", initialBody)
-    withClue(s"initial upload: ${initialResp.code} ${initialResp.body.merge}\n") {
-      initialResp.code.code shouldBe 200
-    }
+    // Block CCDN so that queue changes are only attributable to the revocation, not CCDN processing.
+    val faultStub = Json.obj(
+      "priority" -> 1,
+      "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
+      "response" -> Json.obj("status" -> 503, "body" -> "Service Unavailable")
+    )
+    val stubId = bfarmWiremock.addStub(faultStub)
+    try {
+      val (initialTan, initialBody) = generateFakeMvhSubmission("mtb")
+      val initialResp = node1.post("/mtb/etl/patient-record", initialBody)
+      withClue(s"initial upload: ${initialResp.code} ${initialResp.body.merge}\n") {
+        initialResp.code.code shouldBe 200
+      }
 
-    val json     = Json.parse(initialBody)
-    val freshTan = randomHex()
-    // Keep modelProjectConsent permits intact so the validator passes.
-    // Signal the revocation via the top-level PatientRecord consent field.
-    val denyConsent = Json.obj(
-      "purpose"    -> Json.obj("coding" -> Json.arr(
-        Json.obj("code" -> "sequencing"),
-        Json.obj("code" -> "reidentification"),
-        Json.obj("code" -> "case-identification"),
-      )),
-      "provisions" -> Json.arr(Json.obj("type" -> "deny")),
-    )
-    val revoked = json.as[JsObject] ++ Json.obj(
-      "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj(
-        "type"        -> "correction",
-        "transferTAN" -> freshTan,
-      )),
-      "consent"  -> denyConsent,
-    )
-    val resp = node1.post("/mtb/etl/patient-record", revoked.toString())
-    withClue(s"consent revocation upload: ${resp.code} ${resp.body.merge}\n") {
-      resp.code.code should (be >= 200 and be < 300)
+      val json     = Json.parse(initialBody)
+      val freshTan = randomHex()
+      // Keep modelProjectConsent permits intact so the validator passes.
+      // Signal the revocation via the top-level PatientRecord consent field.
+      val denyConsent = Json.obj(
+        "purpose"    -> Json.obj("coding" -> Json.arr(
+          Json.obj("code" -> "sequencing"),
+          Json.obj("code" -> "reidentification"),
+          Json.obj("code" -> "case-identification"),
+        )),
+        "provisions" -> Json.arr(Json.obj("type" -> "deny")),
+      )
+      val revoked = json.as[JsObject] ++ Json.obj(
+        "metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj(
+          "type"        -> "correction",
+          "transferTAN" -> freshTan,
+        )),
+        "consent"  -> denyConsent,
+      )
+      val resp = node1.post("/mtb/etl/patient-record", revoked.toString())
+      withClue(s"consent revocation upload: ${resp.code} ${resp.body.merge}\n") {
+        resp.code.code should (be >= 200 and be < 300)
+      }
+
+      // Counter: patient deletion must remove the initial submission report from the queue
+      val queueResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
+      queueResp.code.code shouldBe 200
+      val entries = (Json.parse(queueResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
+      withClue(s"Initial TAN=$initialTan should be absent from the unsubmitted queue after consent revocation") {
+        entries.exists(r => (r \ "id").asOpt[String].contains(initialTan)) shouldBe false
+      }
+    } finally {
+      bfarmWiremock.removeStub(stubId)
     }
   }
 
@@ -134,6 +153,19 @@ class UploadSpec extends DipIntegrationSuite {
     val rdTans = (Json.parse(rdResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
       .flatMap(r => (r \ "metadata" \ "transferTAN").asOpt[String])
     rdTans should not contain mtbTan
+  }
+
+  it should "list an RD record in the RD submission report list" in {
+    val rdTan  = uploadFakeMvhRecordToDipnode("rd")
+    val rdResp = node1.get("/rd/peer2peer/mvh/submissions")
+    withClue(s"GET /rd/peer2peer/mvh/submissions: ${rdResp.code} ${rdResp.body.merge}\n") {
+      rdResp.code.code shouldBe 200
+    }
+    val rdTans = (Json.parse(rdResp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
+      .flatMap(r => (r \ "metadata" \ "transferTAN").asOpt[String])
+    withClue(s"RD TAN=$rdTan should appear in the RD submission report list") {
+      rdTans should contain(rdTan)
+    }
   }
 
   it should "reject an MTB record posted to node2 (node2 is RD-only)" in {

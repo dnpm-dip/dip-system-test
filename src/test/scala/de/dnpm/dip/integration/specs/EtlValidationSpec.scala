@@ -47,15 +47,23 @@ class EtlValidationSpec extends DipIntegrationSuite {
     val stubId = bfarmWiremock.addStub(faultStub)
     try {
       val (_, body) = generateFakeMvhSubmission(useCase = "mtb")
-      val patientId = (Json.parse(body) \ "patient" \ "id").as[String]
+      val patientId  = (Json.parse(body) \ "patient" \ "id").as[String]
+      val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
 
       node1.post("/mtb/etl/patient-record", body).code.code shouldBe 200
+
+      // Counter: TAN must be present in the queue before deletion
+      val queueBefore = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
+      queueBefore.code.code shouldBe 200
+      val entriesBefore = (Json.parse(queueBefore.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[JsArray].value
+      withClue(s"TAN=$tanFromBody should be in the unsubmitted queue before deletion") {
+        entriesBefore.exists(r => (r \ "id").asOpt[String].contains(tanFromBody)) shouldBe true
+      }
 
       val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
       deleteResp.code.code should (be >= 200 and be < 300)
 
       // After deletion the submission report must not appear in the unsubmitted queue
-      val tanFromBody = (Json.parse(body) \ "metadata" \ "transferTAN").as[String]
       val reportsResp = node1.get("/mtb/peer2peer/mvh/submission-reports?status=unsubmitted")
       reportsResp.code.code shouldBe 200
       val responseBody = reportsResp.body.getOrElse(fail("Unexpected error body"))
