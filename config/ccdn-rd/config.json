@@ -1,7 +1,8 @@
 {
   "polling": {
     "period": 5,
-    "timeUnit": "SECONDS"
+    "timeUnit": "SECONDS",
+    "startTime": "00:00:00"
   },
   "dataNodeIds": {
     "RD": "TEST-RD-001"

@@ -1,0 +1,2 @@
+To run execute "sbt test"
+See docs/testcases.md for the full list of tests

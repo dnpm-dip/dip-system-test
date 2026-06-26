@@ -1,6 +1,8 @@
 package de.dnpm.dip.integration.support
 
 import scala.util.Try
+import com.mongodb.client.MongoClients
+import org.bson.Document
 
 /** Manages the Docker Compose stack for all integration tests.
  *
@@ -46,7 +48,35 @@ object DipTestEnvironment {
       println(s"[DipTestEnvironment] Waiting for $name …")
       awaitUrl(url, timeoutSec = 300)
     }
+    waitForCcdnReady()
     println("[DipTestEnvironment] All services ready.")
+  }
+
+  // Polls MongoDB until both CCDN instances have written at least one successful availability
+  // report, proving each completed a full workflow cycle without crashing.
+  private def waitForCcdnReady(): Unit = {
+    println("[DipTestEnvironment] Waiting for CCDN to complete first workflow cycle…")
+    val deadline = System.currentTimeMillis() + 120_000L
+    var ready = false
+    while (System.currentTimeMillis() < deadline && !ready) {
+      Try {
+        val client = MongoClients.create("mongodb://localhost:27017")
+        try {
+          val coll = client.getDatabase("ccdn").getCollection("siteAvailabilityReports")
+          // UK1 is monitored by ccdn-mtb and ccdn-rd; UK2 only by ccdn-rd.
+          // "fully" is Responsivity.success serialised by the CCDN.
+          val uk1 = coll.countDocuments(Document.parse("""{"site":"UK1","responsivity":"fully"}"""))
+          val uk2 = coll.countDocuments(Document.parse("""{"site":"UK2","responsivity":"fully"}"""))
+          uk1 > 0 && uk2 > 0
+        } finally client.close()
+      } match {
+        case scala.util.Success(true)  => ready = true
+        case scala.util.Success(false) => println("  [wait] CCDN not ready yet…"); Thread.sleep(3_000)
+        case scala.util.Failure(ex)    => println(s"  [wait] MongoDB check failed: ${ex.getMessage}"); Thread.sleep(3_000)
+      }
+    }
+    if (!ready) throw new RuntimeException("CCDN did not complete a workflow cycle within 120s")
+    println("[DipTestEnvironment] CCDN ready.")
   }
 
   private def awaitUrl(url: String, timeoutSec: Int): Unit = {

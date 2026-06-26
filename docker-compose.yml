@@ -214,7 +214,8 @@ services:
     networks: [integration]
 
   ccdn-mtb:
-    image: ccdnfailzors:0.5
+    image: ghcr.io/dnpm-dip/central-data-node:latest
+    pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     depends_on:
       ccdn-mongodb:
@@ -238,7 +239,8 @@ services:
     networks: [integration]
 
   ccdn-rd:
-    image: ccdnfailzors:0.5
+    image: ghcr.io/dnpm-dip/central-data-node:latest
+    pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     depends_on:
       ccdn-mongodb:
