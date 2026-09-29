@@ -110,7 +110,7 @@ services:
 
   node1-backend:
     image: ghcr.io/dnpm-dip/api-gateway:${BACKEND_IMAGE_TAG:-latest}
-    pull_policy: ${PULL_POLICY:-always}
+    pull_policy: ${BACKEND_PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       - "${NODE1_PORT:-8001}:9000"
@@ -174,7 +174,7 @@ services:
 
   node2-backend:
     image: ghcr.io/dnpm-dip/api-gateway:${BACKEND_IMAGE_TAG:-latest}
-    pull_policy: ${PULL_POLICY:-always}
+    pull_policy: ${BACKEND_PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       - "${NODE2_PORT:-8002}:9000"
@@ -214,8 +214,8 @@ services:
     networks: [integration]
 
   ccdn-mtb:
-    image: ghcr.io/dnpm-dip/central-data-node:latest
-    pull_policy: ${PULL_POLICY:-always}
+    image: ${CCDN_IMAGE:-ghcr.io/dnpm-dip/central-data-node:latest}
+    pull_policy: ${CCDN_PULL_POLICY:-missing}
     restart: unless-stopped
     depends_on:
       ccdn-mongodb:
@@ -232,6 +232,8 @@ services:
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
       CCDN_MONGODB_URI: mongodb://ccdn-mongodb:27017/ccdn
+      # Overridable so that tests can recreate ccdn-mtb without a usable keyfile (see CcdnBackupSpec)
+      CCDN_BACKUP_ENCRYPTION_PUBLIC_KEY_PATH: ${CCDN_MTB_PUBLIC_KEY_PATH:-/ccdn_config/public.pem}
       TZ: Europe/Berlin
     volumes:
       - ccdn-mtb-data:/ccdn_data
@@ -239,8 +241,8 @@ services:
     networks: [integration]
 
   ccdn-rd:
-    image: ghcr.io/dnpm-dip/central-data-node:latest
-    pull_policy: ${PULL_POLICY:-always}
+    image: ${CCDN_IMAGE:-ghcr.io/dnpm-dip/central-data-node:latest}
+    pull_policy: ${CCDN_PULL_POLICY:-missing}
     restart: unless-stopped
     depends_on:
       ccdn-mongodb:

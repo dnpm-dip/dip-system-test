@@ -7,5 +7,7 @@ class IntegrationTests extends Suites(
   new EtlValidationSpec,  // ETL validate / delete semantics
   new EtlUploadSpec,      // upload dedup, type, correction rules
   new FederatedQuerySpec, // cross-node queries (uses pre-seeded random data)
-  new CcdnWorkflowSpec,   // CCDN end-to-end polling flow — last, timing-sensitive
+  new MvhApiSpec,         // MVH peer2peer + controlling endpoints
+  new CcdnWorkflowSpec,   // CCDN end-to-end polling flow — timing-sensitive
+  new CcdnBackupSpec,     // zKDK backups — last, restarts/recreates ccdn-mtb
 )

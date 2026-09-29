@@ -4,3 +4,5 @@ target/
 project/target/
 .idea/*
 .bsp/*
+decrypted/
+backup.json

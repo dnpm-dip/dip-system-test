@@ -32,10 +32,20 @@
 - ✓ `Test` submission type → accepted (200)
 - ✓ MTB record uploaded to node1 does not appear in node2's RD submission report list
 - ✓ [counter] RD record uploaded to node1 appears in the RD submission report list (guards against the MTB-isolation test passing on an always-empty RD list)
-- ✓ MTB record posted to node2 (RD-only) → rejected (4xx)
+- MTB record posted to node2 (RD-only) → rejected (4xx) — ignored: the api-gateway registers MTB and RD routers regardless of `ACTIVE_FEDERATED_QUERY_USE_CASES`; the RD-only restriction only applies to federated queries
 - `Initial` → `FollowUp` for the same patient/episode → two reports, both appear in CCDN polling
 - `Test` submission type excluded from prior-submission history used in consent-check logic
 - Upload for both MTB and RD use cases for the same patient → two independent report chains
+
+## MVH / controlling API (`MvhApiSpec`)
+
+- ✓ `GET /{uc}/peer2peer/mvh/submissions/{tan}` → full submission (matching `metadata.transferTAN`, patient ID)
+- ✓ `GET /{uc}/peer2peer/mvh/submissions/{unknownTan}` → 404
+- ✓ `GET /{uc}/peer2peer/mvh/deletion-events?after=…` → contains an event 1 s after `after`, not one 1 s before
+- ✓ `GET /{uc}/controlling/local-controlling-info` → 200 (MTB, RD)
+- ✓ `GET /{uc}/controlling/federated-controlling-info` → 200 (MTB, RD)
+- `/{uc}/etl/mvh/submission-reports` and `/{uc}/etl/mvh/submissions` (routes moved in api-gateway 414c7f8) — not tested
+- JSON projection on the submissions endpoint (api-gateway 3d22397) — not tested
 
 ## Federated query (`FederatedQuerySpec`)
 
@@ -64,3 +74,26 @@
 - ✓ ccdn-mtb paused → RD submission gets `Submitted` by ccdn-rd; MTB submission stays `Unsubmitted`; MTB is processed after ccdn-mtb recovers
 - Calling `:submitted` on an already-submitted report is idempotent (no error)
 - One DIP node stopped → CCDN still polls and submits the remaining node successfully
+
+## zKDK backups (`CcdnBackupSpec`)
+
+- ✓ MVH-consented report → `submission` and `report` document in `ccdn.backup`, report leaves the queue and is archived ([counter] to the missing-keyfile test)
+- ✓ Backup documents: plaintext `tan`/`site`/`usecase`/`type`/`submittedAt` correct; `content` has exactly the fields of `EncryptionService.Encrypted`, valid base64, IV 16 bytes, encrypted key one RSA block, ciphertext not JSON
+- ✓ Backups decrypt with `crypto/private.pem` (decrypted submission/report carry the TAN and patient ID)
+- ✓ Report without MVH consent (injected into the queue: the DIP node rejects uploads without sequencing consent — checked as precondition) → no backup documents, but dequeued into `quarter-reports`
+- ✓ Prefilled queue re-delivers an already backed-up and archived report → still exactly one `submission` and one `report` document (WARN "already exists; skipped" for both); report leaves the queue, existing archived file kept (WARN "already exists in backup folder")
+- ✓ Keyfile missing → report stays in the queue in state `confirmed`, no backup documents, ERROR logged
+- ✓ Keyfile restored → the stuck report is backed up and dequeued
+- ✓ Patient with initial + correction deleted → one DeletionEvent per TAN from the DIP node; backup ends up with only a `deletion` document per TAN
+- ✓ zKDK restart re-fetches the deletion history (WARN logged) → still exactly one `deletion` document per TAN
+- ✓ RD deletion of a patient on UK1 → RD backups replaced by a `deletion` document, MTB backups of the same patient untouched, no MTB DeletionEvent
+- Deletion before backup (patient deleted while its report is still queued in the zKDK) → the zKDK cannot confirm/download it. Rare, handled manually — not tested
+- Deletion with `scope=query` → expected: no DeletionEvent, backup intact — not yet tested
+- Deletion with `scope=mvgenomseq` → expected: DeletionEvent emitted — not yet tested
+- Rejection of invalid downloaded submissions (`validateSubmission`) — out of scope
+- Number of submission downloads per cycle (`minNumSubmissionDownloads`) — covered by central-data-node unit tests
+
+## `quarter-reports` collection (`CcdnBackupSpec`)
+
+- ✓ Every dequeued report (with and without MVH consent) stored exactly once, `createdAt` as floating UTC, `year`/`quarter` matching it
+- ✓ Schema validator rejects a document whose `quarter` does not match `createdAt` (code 121); [counter] same document with the matching quarter is accepted

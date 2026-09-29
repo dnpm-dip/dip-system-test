@@ -4,6 +4,8 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import play.api.libs.json._
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME
 import scala.util.Try
 
 /** Base trait for all DIP integration specs.
@@ -49,8 +51,12 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
     buf.map("%02x".format(_)).mkString
   }
 
-  /** Load a static MVH submission, randomise all identity fields, return (tan, body). */
-  def generateFakeMvhSubmission(useCase: String, intendedTan:String=randomHex()): (String, String) = {
+  /** Load a static MVH submission, randomise all identity fields (patient ID unless given), return (tan, body). */
+  def generateFakeMvhSubmission(
+    useCase: String,
+    intendedTan: String = randomHex(),
+    patientId: String = java.util.UUID.randomUUID().toString
+  ): (String, String) = {
     require(Set("mtb","rd").contains(useCase))
     val raw  = scala.io.Source.fromResource(s"submissions/$useCase.json").mkString
     val json = Json.parse(raw)
@@ -60,7 +66,7 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
                           .map(e => (e \ "id").as[String])
 
     var body = raw
-    body = body.replace(oldPatientId, java.util.UUID.randomUUID().toString)
+    body = body.replace(oldPatientId, patientId)
     for (eid <- oldEpisodeIds)
       body = body.replace(eid, java.util.UUID.randomUUID().toString)
 
@@ -72,9 +78,14 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
   }
 
   /** Upload a fake MVH submission, assert 200, return the TAN. */
-  def uploadFakeMvhRecordToDipnode(useCase: String, client: DipNodeClient = node1, intendedTan:String=randomHex()): String = {
+  def uploadFakeMvhRecordToDipnode(
+    useCase: String,
+    client: DipNodeClient = node1,
+    intendedTan: String = randomHex(),
+    patientId: String = java.util.UUID.randomUUID().toString
+  ): String = {
     require(Set("mtb","rd").contains(useCase))
-    val (tan, fakeSubmissionBody) = generateFakeMvhSubmission(useCase,intendedTan)
+    val (tan, fakeSubmissionBody) = generateFakeMvhSubmission(useCase, intendedTan, patientId)
     val resp        = client.post(s"/$useCase/etl/patient-record", fakeSubmissionBody)
     withClue(s"Upload of $useCase record to ${client.baseUrl} returned ${resp.code}: ${resp.body.merge}\n") {
       resp.code.code shouldBe 200
@@ -134,4 +145,25 @@ trait DipIntegrationSuite extends AnyFlatSpec with Matchers with BeforeAndAfterA
       }
     }
   }
+
+  /** DeletionEvents ({patient, tan, dateTime}) from GET /$useCase/peer2peer/mvh/deletion-events, asserting 200. */
+  def deletionEvents(client: DipNodeClient, useCase: String, after: Option[LocalDateTime] = None): Seq[JsObject] = {
+    require(Set("mtb","rd").contains(useCase))
+    val query = after.fold("")(t => s"?after=${t.format(ISO_LOCAL_DATE_TIME)}")
+    val resp  = client.get(s"/$useCase/peer2peer/mvh/deletion-events$query")
+    withClue(s"GET /$useCase/peer2peer/mvh/deletion-events$query: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code shouldBe 200
+    }
+    (Json.parse(resp.body.getOrElse(fail("Unexpected error body"))) \ "entries").as[Seq[JsObject]]
+  }
+
+  /** Wait until the zKDK has finished all workflow steps for `tan`, i.e. stored it in the quarter-reports collection.
+   *  Deleting a patient before that point leaves the zKDK unable to confirm or download it (documented, not handled).
+   */
+  def awaitFlushedByZkdk(tan: String, useCase: String, timeoutMs: Long = 90_000L): Unit =
+    eventually(timeoutMs) {
+      withClue(s"TAN=$tan not (exactly once) in quarter-reports: ") {
+        CcdnMongo.quarterReportDocs(tan, useCase.toUpperCase) should have size 1
+      }
+    }
 }

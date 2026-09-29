@@ -192,6 +192,6 @@ class EtlUploadSpec extends DipIntegrationSuite {
     // ACTIVE_FEDERATED_QUERY_USE_CASES — that env var is only read by query services.
     // Node2's "RD-only" restriction is enforced at the broker/federated-query
     // layer (see FederatedQuerySpec), not at the ETL upload level.
-    pending
+    ignore
   }
 }
