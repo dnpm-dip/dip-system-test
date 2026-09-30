@@ -2,7 +2,8 @@
   "polling": {
     "period": 5,
     "timeUnit": "SECONDS",
-    "startTime": "00:00:00"
+    "startTime": "00:00:00",
+    "minNumSubmissionDownloads": 25
   },
   "dataNodeIds": {
     "MTB": "TEST-MTB-001"

@@ -84,6 +84,7 @@
 - ✓ Prefilled queue re-delivers an already backed-up and archived report → still exactly one `submission` and one `report` document (WARN "already exists; skipped" for both); report leaves the queue, existing archived file kept (WARN "already exists in backup folder")
 - ✓ Keyfile missing → report stays in the queue in state `confirmed`, no backup documents, ERROR logged
 - ✓ Keyfile restored → the stuck report is backed up and dequeued
+- ✓ `polling.minNumSubmissionDownloads`: 3 left-over `confirmed` reports per instance (produced with a missing keyfile) → ccdn-rd (set to 1) backs up one submission per workflow cycle, [counter] ccdn-mtb (set to 25) backs up all three in one cycle
 - ✓ Patient with initial + correction deleted → one DeletionEvent per TAN from the DIP node; backup ends up with only a `deletion` document per TAN
 - ✓ zKDK restart re-fetches the deletion history (WARN logged) → still exactly one `deletion` document per TAN
 - ✓ RD deletion of a patient on UK1 → RD backups replaced by a `deletion` document, MTB backups of the same patient untouched, no MTB DeletionEvent
@@ -91,7 +92,6 @@
 - Deletion with `scope=query` → expected: no DeletionEvent, backup intact — not yet tested
 - Deletion with `scope=mvgenomseq` → expected: DeletionEvent emitted — not yet tested
 - Rejection of invalid downloaded submissions (`validateSubmission`) — out of scope
-- Number of submission downloads per cycle (`minNumSubmissionDownloads`) — covered by central-data-node unit tests
 
 ## `quarter-reports` collection (`CcdnBackupSpec`)
 

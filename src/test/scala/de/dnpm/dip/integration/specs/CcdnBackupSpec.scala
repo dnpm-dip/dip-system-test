@@ -1,7 +1,7 @@
 package de.dnpm.dip.integration.specs
 
 import java.nio.charset.StandardCharsets.UTF_8
-import java.time.{LocalDateTime, ZoneOffset}
+import java.time.{Instant, LocalDateTime, ZoneOffset}
 import java.time.temporal.ChronoUnit
 import java.util.{Base64, Date, UUID}
 import scala.jdk.CollectionConverters._
@@ -27,9 +27,12 @@ import de.dnpm.dip.integration.support.{BackupCrypto, CcdnContainer, CcdnMongo, 
 class CcdnBackupSpec extends DipIntegrationSuite {
 
   private val ccdnMtb = new CcdnContainer("ccdn-mtb")
+  private val ccdnRd  = new CcdnContainer("ccdn-rd")
 
   private val MissingKeyPath = "/ccdn_config/does-not-exist.pem"
-  private var keyfileHidden  = false
+  // docker-compose.yml variables overriding the keyfile path per zKDK instance
+  private val KeyPathVar     = Map(ccdnMtb -> "CCDN_MTB_PUBLIC_KEY_PATH", ccdnRd -> "CCDN_RD_PUBLIC_KEY_PATH")
+  private var keyfileHidden  = Set.empty[CcdnContainer]
 
   // State handed on between tests
   private var consented: Option[(String, String)]           = None // (TAN, patient ID)
@@ -38,12 +41,19 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   private var deletedTans: Seq[String]                        = Seq.empty
 
   override def afterAll(): Unit =
-    try if (keyfileHidden) restoreKeyfile()
+    try keyfileHidden.foreach(restoreKeyfile)
     finally super.afterAll()
 
-  private def restoreKeyfile(): Unit = {
-    ccdnMtb.recreate()
-    keyfileHidden = false
+  /** Recreate `ccdn` without a usable encryption keyfile; returns a timestamp for [[CcdnContainer.logsSince]]. */
+  private def hideKeyfile(ccdn: CcdnContainer): Instant = {
+    keyfileHidden += ccdn
+    ccdn.recreate(KeyPathVar(ccdn) -> MissingKeyPath)
+  }
+
+  private def restoreKeyfile(ccdn: CcdnContainer): Instant = {
+    val since = ccdn.recreate()
+    keyfileHidden -= ccdn
+    since
   }
 
   private def upload(useCase: String, patientId: String = UUID.randomUUID().toString): (String, String) = {
@@ -68,13 +78,13 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     LocalDateTime.parse((Json.parse(resp.body.getOrElse(fail("Unexpected error body"))) \ "createdAt").as[String])
   }
 
-  private def awaitBackedUpAndFlushed(tan: String, timeoutMs: Long = 90_000L): Unit =
+  private def awaitBackedUpAndFlushed(tan: String, timeoutMs: Long = 90_000L, ccdn: CcdnContainer = ccdnMtb): Unit =
     eventually(timeoutMs) {
       withClue(s"backup documents of TAN=$tan: ") {
         CcdnMongo.backupTypes(tan) shouldBe Seq("report", "submission")
       }
-      withClue(s"TAN=$tan still in the ccdn-mtb queue: ") {
-        ccdnMtb.queueFile(tan) shouldBe empty
+      withClue(s"TAN=$tan still in the ${ccdn.service} queue: ") {
+        ccdn.queueFile(tan) shouldBe empty
       }
     }
 
@@ -227,8 +237,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   // ─── Missing encryption keyfile ────────────────────────────────────────────
 
   it should "keep a report in the queue in state 'confirmed' while the encryption keyfile is missing" in {
-    keyfileHidden = true
-    val since     = ccdnMtb.recreate("CCDN_MTB_PUBLIC_KEY_PATH" -> MissingKeyPath)
+    val since     = hideKeyfile(ccdnMtb)
     val (tan, _)  = upload("mtb")
 
     awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
@@ -247,8 +256,47 @@ class CcdnBackupSpec extends DipIntegrationSuite {
 
   it should "back up and dequeue the stuck report once the keyfile is back" in {
     val tan = stuckWithoutKey.getOrElse(cancel("depends on the missing-keyfile test"))
-    restoreKeyfile()
+    restoreKeyfile(ccdnMtb)
     awaitBackedUpAndFlushed(tan)
+  }
+
+  // ─── Download limit per cycle (polling.minNumSubmissionDownloads) ──────────
+
+  it should "back up at most minNumSubmissionDownloads left-over submissions per cycle (ccdn-rd: 1, ccdn-mtb: 25)" in {
+    // The limit only applies to reports confirmed in an earlier cycle: reports confirmed in the current
+    // cycle raise it to their number. Left-over reports are produced by hiding the keyfile, so that
+    // they stay in state "confirmed". ccdn-mtb is the [counter]: the same left-overs all in one cycle.
+    withClue("precondition: other 'confirmed' reports in the ccdn-rd queue would compete for its single download slot: ") {
+      ccdnRd.queuedReports
+        .filter(r => (r \ "status").asOpt[String].contains("confirmed"))
+        .flatMap(r => (r \ "id").asOpt[String]) shouldBe empty
+    }
+
+    hideKeyfile(ccdnMtb)
+    hideKeyfile(ccdnRd)
+    val tans = Map(
+      ccdnMtb -> Seq.fill(3)(upload("mtb")._1),
+      ccdnRd  -> Seq.fill(3)(upload("rd")._1)
+    )
+    for ((useCase, ts) <- Seq("mtb" -> tans(ccdnMtb), "rd" -> tans(ccdnRd)); tan <- ts)
+      awaitReportStatusInDipNode(tan, "Submitted", useCase = useCase, timeoutMs = 90_000L)
+    for (tan <- tans.values.flatten) withClue(s"precondition: TAN=$tan backed up despite the missing keyfile: ") {
+      CcdnMongo.backupDocs(tan) shouldBe empty
+    }
+
+    val since = tans.keys.map(ccdn => ccdn -> restoreKeyfile(ccdn)).toMap
+    for ((ccdn, ts) <- tans; tan <- ts) awaitBackedUpAndFlushed(tan, timeoutMs = 120_000L, ccdn = ccdn)
+
+    val cycles = tans.map { case (ccdn, ts) => ccdn -> ccdn.submissionBackupCycles(since(ccdn), ts) }
+    for ((ccdn, ts) <- tans) withClue(s"${ccdn.service}: no 'Backed up Submission' DEBUG line for some TANs in $ts: ") {
+      cycles(ccdn).keySet shouldBe ts.toSet
+    }
+    withClue(s"ccdn-rd (minNumSubmissionDownloads = 1) should back up each left-over in its own cycle, got TAN -> cycle ${cycles(ccdnRd)}: ") {
+      cycles(ccdnRd).values.toSeq.distinct should have size 3
+    }
+    withClue(s"[counter] ccdn-mtb (minNumSubmissionDownloads = 25) should back up all left-overs in one cycle, got TAN -> cycle ${cycles(ccdnMtb)}: ") {
+      cycles(ccdnMtb).values.toSet should have size 1
+    }
   }
 
   // ─── Deletions ─────────────────────────────────────────────────────────────

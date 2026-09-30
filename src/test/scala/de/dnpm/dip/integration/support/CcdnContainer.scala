@@ -2,6 +2,7 @@ package de.dnpm.dip.integration.support
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.Instant
+import play.api.libs.json.{JsObject, Json}
 
 /** Queue, archive and log access to a running zKDK (central-data-node) container.
  *
@@ -19,6 +20,8 @@ class CcdnContainer(val service: String) {
       .linesIterator.filter(_.nonEmpty).toSeq
 
   def queueFile(tan: String): Option[String] = glob(s"$queueDir/*$tan*.json").headOption
+
+  def queuedReports: Seq[JsObject] = glob(s"$queueDir/*.json").map(p => Json.parse(read(p)).as[JsObject])
 
   /** Where ArchivingReportRepository moved the report after the last workflow step. */
   def archivedFile(tan: String): Option[String] = glob(s"$archiveDir/*/*$tan*.json").headOption
@@ -48,6 +51,17 @@ class CcdnContainer(val service: String) {
 
   def workflowCyclesSince(since: Instant): Int =
     logsSince(since).linesIterator.count(_.contains("Conducting scheduled reporting workflow"))
+
+  /** For each of `tans` whose submission was backed up since `since` (DEBUG "Backed up Submission …" of
+   *  MongodbPersistenceServiceImpl), the number of the workflow cycle it happened in, counting from 1.
+   *  Cycles do not overlap: the scheduler awaits each workflow run.
+   */
+  def submissionBackupCycles(since: Instant, tans: Seq[String]): Map[String, Int] =
+    logsSince(since).linesIterator.foldLeft((0, Map.empty[String, Int])) {
+      case ((cycle, found), line) if line.contains("Conducting scheduled reporting workflow") => (cycle + 1, found)
+      case ((cycle, found), line) =>
+        (cycle, found ++ tans.find(tan => line.contains(s"Backed up Submission $tan from site")).map(_ -> cycle))
+    }._2
 
   /** Whether the logs contain the WARN that MongodbPersistenceServiceImpl emits when skipping an existing backup. */
   def warnedExistingBackup(since: Instant, kind: String, tan: String): Boolean =

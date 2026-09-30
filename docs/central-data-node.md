@@ -62,6 +62,9 @@ Main operational config. Set via env var `CCDN_CONFIG_FILE` (default: `/ccdn_con
 ```
 
 - `polling.period` / `polling.timeUnit` — how often to poll DIP nodes
+- `polling.minNumSubmissionDownloads` (optional, default 25) — per cycle, the zKDK downloads and backs up the submissions
+  of as many `confirmed` reports as were confirmed in that cycle, but at least this many. The system test sets it
+  to 25 for ccdn-mtb and 1 for ccdn-rd (see `CcdnBackupSpec`).
 - `dataNodeIds` — CCDN's own BfArM-registered node IDs per use case
 - `sites` — map of site ID → BfArM submitter info + active use cases. Only sites listed here are polled.
 
