@@ -4,7 +4,7 @@
 #   broker         - Local nginx broker (replaces https://dnpm.medizin.uni-tuebingen.de)
 #   node1-*        - DIP node 1: UK1 (MTB + RD random data)
 #   node2-*        - DIP node 2: UK2 (RD random data)
-#   ccdn-mongodb   - MongoDB shared by both zKDK instances
+#   mongodb        - MongoDB shared by both zKDK instances
 #   ccdn-mtb       - Central Data Node (zKDK) for MTB — polls UK1 only
 #   ccdn-rd        - Central Data Node (zKDK) for RD  — polls UK1 + UK2
 #   mock-bfarm     - Wiremock stub for the BfArM upload API
@@ -197,7 +197,8 @@ services:
     networks: [integration]
 
   # ─── CCDN / zKDK ─────────────────────────────────────────────────────────
-  ccdn-mongodb:
+  # Named as in central-data-node-deployment, whose backup-extract.sh addresses it by this name
+  mongodb:
     image: mongo:8
     restart: unless-stopped
     command: bash -c "mkdir -p /ccdn_data/mongodb && mongod --dbpath /ccdn_data/mongodb --bind_ip_all"
@@ -218,7 +219,7 @@ services:
     pull_policy: ${CCDN_PULL_POLICY:-missing}
     restart: unless-stopped
     depends_on:
-      ccdn-mongodb:
+      mongodb:
         condition: service_healthy
       broker:
         condition: service_started
@@ -231,7 +232,7 @@ services:
       CCDN_BFARM_AUTH_URL: http://mock-bfarm:8080/bfarm/oauth/token
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
-      CCDN_MONGODB_URI: mongodb://ccdn-mongodb:27017/ccdn
+      CCDN_MONGODB_URI: mongodb://mongodb:27017/ccdn
       # Overridable so that tests can recreate ccdn-mtb without a usable keyfile (see CcdnBackupSpec)
       CCDN_BACKUP_ENCRYPTION_PUBLIC_KEY_PATH: ${CCDN_MTB_PUBLIC_KEY_PATH:-/ccdn_config/public.pem}
       TZ: Europe/Berlin
@@ -245,7 +246,7 @@ services:
     pull_policy: ${CCDN_PULL_POLICY:-missing}
     restart: unless-stopped
     depends_on:
-      ccdn-mongodb:
+      mongodb:
         condition: service_healthy
       broker:
         condition: service_started
@@ -258,7 +259,7 @@ services:
       CCDN_BFARM_AUTH_URL: http://mock-bfarm:8080/bfarm/oauth/token
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
-      CCDN_MONGODB_URI: mongodb://ccdn-mongodb:27017/ccdn
+      CCDN_MONGODB_URI: mongodb://mongodb:27017/ccdn
       # Overridable so that tests can recreate ccdn-rd without a usable keyfile (see CcdnBackupSpec)
       CCDN_BACKUP_ENCRYPTION_PUBLIC_KEY_PATH: ${CCDN_RD_PUBLIC_KEY_PATH:-/ccdn_config/public.pem}
       TZ: Europe/Berlin

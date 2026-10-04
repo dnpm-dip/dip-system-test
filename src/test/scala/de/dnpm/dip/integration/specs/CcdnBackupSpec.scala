@@ -9,8 +9,9 @@ import scala.util.Try
 import com.mongodb.MongoWriteException
 import com.mongodb.client.model.Filters
 import org.bson.Document
+import org.bson.types.ObjectId
 import play.api.libs.json._
-import de.dnpm.dip.integration.support.{BackupCrypto, CcdnContainer, CcdnMongo, DipIntegrationSuite}
+import de.dnpm.dip.integration.support.{BackupCrypto, BackupExtractScript, CcdnContainer, CcdnMongo, DipIntegrationSuite}
 
 /** Tests for the zKDK backup workflow (central-data-node, branch feature-centralbackups).
  *
@@ -39,6 +40,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   private var withoutConsent: Option[(String, LocalDateTime)] = None // (TAN, createdAt)
   private var stuckWithoutKey: Option[String]                 = None
   private var deletedTans: Seq[String]                        = Seq.empty
+  private var splitBackup: Option[(String, String)]           = None // (TAN, patient ID)
 
   override def afterAll(): Unit =
     try keyfileHidden.foreach(restoreKeyfile)
@@ -150,6 +152,123 @@ class CcdnBackupSpec extends DipIntegrationSuite {
           (payload \ "id").asOpt[String] shouldBe Some(tan)
           (payload \ "patient").asOpt[String] shouldBe Some(patientId)
       }
+    }
+  }
+
+  // ─── Submissions too large for a single MongoDB document ───────────────────
+
+  private val MongoMaxDocumentBytes = 16 * 1024 * 1024
+  // play.http.parser.maxMemoryBuffer of node1 (config/node1/production.conf); HOCON's "MB" is 10^6 bytes
+  private val Node1MaxUploadBytes   = 16_000_000
+
+  /** Compares two (large) JSON values without printing them: on a mismatch, names the differing top-level fields. */
+  private def assertSameJson(actual: JsValue, expected: JsValue): Unit =
+    if (actual != expected) (actual, expected) match {
+      case (a: JsObject, e: JsObject) =>
+        val differing = (a.keys ++ e.keys).filter(k => a.value.get(k) != e.value.get(k))
+        fail(s"JSON differs in the top-level fields ${differing.mkString(", ")}")
+      case _ =>
+        fail("JSON differs (not both objects)")
+    }
+
+  it should "back up and extract a submission whose encrypted backup exceeds MongoDB's 16 MB document limit" in {
+    // Inflate a submission with notes on its first diagnosis to ~14.5 MB, just below node1's upload limit:
+    // the base64-encoded ciphertext is ~4/3 of that, i.e. ~19 MB
+    val patientId   = UUID.randomUUID().toString
+    val (tan, base) = generateFakeMvhSubmission("mtb", patientId = patientId)
+    val json        = Json.parse(base).as[JsObject]
+    val diagnoses   = (json \ "diagnoses").as[Seq[JsObject]]
+    val notes       = Seq.fill(14_500)(randomHex(500))
+    val body        = Json.stringify(json ++ Json.obj("diagnoses" -> ((diagnoses.head ++ Json.obj("notes" -> notes)) +: diagnoses.tail)))
+    val bodyBytes   = body.getBytes(UTF_8).length
+    withClue(s"precondition: size of the submission ($bodyBytes bytes): ") {
+      bodyBytes should be < Node1MaxUploadBytes
+      bodyBytes.toLong * 4 / 3 should be > MongoMaxDocumentBytes.toLong
+    }
+    val resp = node1.post("/mtb/etl/patient-record", body)
+    withClue(s"upload of the large submission: ${resp.code} ${resp.body.merge.take(1000)}\n") {
+      resp.code.code shouldBe 200
+    }
+
+    awaitBackedUpAndFlushed(tan, timeoutMs = 180_000L)
+
+    // The ciphertext is split into parts in "largeBackupParts", listed in order by "ciphertextParts"
+    val docs    = CcdnMongo.backupDocs(tan).map(d => d.getString("type") -> d).toMap
+    val content = docs("submission").get("content", classOf[Document])
+    withClue("fields of the submission backup's content: ") {
+      content.keySet.asScala.toSet shouldBe BackupCrypto.EncryptedFields - "ciphertext" + "ciphertextParts"
+    }
+    val partIds = content.getList("ciphertextParts", classOf[ObjectId]).asScala.toSeq
+    val parts   = CcdnMongo.largeBackupParts(tan)
+    withClue(s"parts of TAN=$tan in largeBackupParts vs. ciphertextParts $partIds: ") {
+      partIds.size should be >= 2
+      parts.map(_.getObjectId("_id")).toSet shouldBe partIds.toSet
+      for (part <- parts) {
+        part.getInteger("index").intValue shouldBe partIds.indexOf(part.getObjectId("_id"))
+        (part.getString("type"), part.getString("site"), part.getString("usecase")) shouldBe (("submission", "UK1", "MTB"))
+      }
+    }
+    withClue("the joined ciphertext must exceed MongoDB's document limit: ") {
+      parts.map(_.getString("ciphertext").length.toLong).sum should be > MongoMaxDocumentBytes.toLong
+    }
+    withClue("[counter] the small report backup stays in a single document: ") {
+      docs("report").get("content", classOf[Document]).keySet.asScala.toSet shouldBe BackupCrypto.EncryptedFields
+    }
+    splitBackup = Some(tan -> patientId)
+
+    // The zKDK backs up the submission as the DIP node serves it
+    val dipResp = node1.get(s"/mtb/peer2peer/mvh/submissions/$tan")
+    withClue(s"GET submission $tan: ${dipResp.code}\n") {
+      dipResp.code.code shouldBe 200
+    }
+    val expected = Json.parse(dipResp.body.getOrElse(fail("Unexpected error body")))
+    withClue("precondition: the DIP node serves the inflated submission: ") {
+      ((expected \ "diagnoses")(0) \ "notes").asOpt[Seq[String]] shouldBe Some(notes)
+    }
+    withClue("submission decrypted with BackupCrypto: ") {
+      assertSameJson(BackupCrypto.decrypt(content), expected)
+    }
+    withClue(s"submission extracted with backup-extract.sh of central-data-node-deployment (${BackupExtractScript.Url}): ") {
+      val extracted = BackupExtractScript.run(tan)
+      extracted.keySet shouldBe Set("report", "submission")
+      assertSameJson(extracted("submission"), expected)
+    }
+  }
+
+  it should "remove the ciphertext parts of a split backup when the patient is deleted" in {
+    val (tan, patientId) = splitBackup.getOrElse(cancel("depends on the large-submission test"))
+    withClue(s"precondition: parts of TAN=$tan in largeBackupParts: ") {
+      CcdnMongo.largeBackupParts(tan) should not be empty
+    }
+    // [counter] a part of another backup with the same site, use case and type must survive,
+    // which guards against the parts being removed by a filter that does not include the TAN
+    val otherPart = new Document("_id", new ObjectId())
+      .append("index", 0)
+      .append("ciphertext", "AAAA")
+      .append("tan", randomHex())
+      .append("site", "UK1")
+      .append("usecase", "MTB")
+      .append("type", "submission")
+    CcdnMongo.largeBackupParts.insertOne(otherPart)
+    try {
+      val deleteResp = node1.delete(s"/mtb/etl/patient/$patientId")
+      withClue(s"DELETE patient: ${deleteResp.code} ${deleteResp.body.merge}\n") {
+        deleteResp.code.code shouldBe 200
+      }
+      eventually(90_000L) {
+        withClue(s"backup documents of deleted TAN=$tan: ") {
+          CcdnMongo.backupTypes(tan) shouldBe Seq("deletion")
+        }
+        withClue(s"parts of deleted TAN=$tan left in largeBackupParts: ") {
+          CcdnMongo.largeBackupParts(tan) shouldBe empty
+        }
+      }
+      withClue("[counter] the part of another backup must remain: ") {
+        CcdnMongo.largeBackupParts(otherPart.getString("tan")) should have size 1
+      }
+    } finally {
+      CcdnMongo.largeBackupParts.deleteOne(Filters.eq("_id", otherPart.getObjectId("_id")))
+      ()
     }
   }
 

@@ -60,7 +60,9 @@ object BackupCrypto {
     KeyFactory.getInstance("RSA").generatePrivate(encrypted.getKeySpec(cipher))
   }
 
-  /** Decrypt the "content" sub-document of a backup document into the original JSON payload. */
+  /** Decrypt the "content" sub-document of a backup document into the original JSON payload,
+   *  joining the ciphertext from its parts if it was split (see [[CcdnMongo.ciphertext]]).
+   */
   def decrypt(content: Document): JsValue = {
     def bytes(field: String) = Base64.getDecoder.decode(content.getString(field))
 
@@ -70,6 +72,6 @@ object BackupCrypto {
 
     val aes = Cipher.getInstance("AES/CBC/PKCS5Padding")
     aes.init(Cipher.DECRYPT_MODE, new SecretKeySpec(aesKey, "AES"), new IvParameterSpec(bytes("iv")))
-    Json.parse(new String(aes.doFinal(bytes("ciphertext")), UTF_8))
+    Json.parse(new String(aes.doFinal(Base64.getDecoder.decode(CcdnMongo.ciphertext(content))), UTF_8))
   }
 }
