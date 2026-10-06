@@ -1,10 +1,12 @@
 package de.dnpm.dip.integration.support
 
+import java.time.{LocalDateTime, ZoneOffset}
 import scala.jdk.CollectionConverters._
 import com.mongodb.client.{MongoClients, MongoCollection}
 import com.mongodb.client.model.Filters
 import org.bson.Document
 import org.bson.types.ObjectId
+import play.api.libs.json.{JsObject, Json}
 
 /** Read access to the zKDK's MongoDB ("ccdn" database, shared by ccdn-mtb and ccdn-rd). */
 object CcdnMongo {
@@ -50,4 +52,15 @@ object CcdnMongo {
       .find(Filters.and(Filters.eq("id", tan), Filters.eq("useCase", useCase)))
       .into(new java.util.ArrayList[Document]())
       .asScala.toSeq
+
+  /** The report of `tan` as the zKDK keeps it in its queue, rebuilt from its quarter-reports document
+   *  (Report JSON plus "year"/"quarter", "createdAt" as floating UTC date, truncated to millis).
+   */
+  def queuedReportFromQuarterReports(tan: String, useCase: String): Option[JsObject] =
+    quarterReportDocs(tan, useCase).headOption.map { doc =>
+      val createdAt = LocalDateTime.ofInstant(doc.getDate("createdAt").toInstant, ZoneOffset.UTC)
+      Seq("_id", "year", "quarter").foreach(k => doc.remove(k))
+      doc.put("createdAt", createdAt.toString)
+      Json.parse(doc.toJson).as[JsObject]
+    }
 }

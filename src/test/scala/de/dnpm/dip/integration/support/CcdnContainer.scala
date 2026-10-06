@@ -7,6 +7,8 @@ import play.api.libs.json.{JsObject, Json}
 /** Queue, archive and log access to a running zKDK (central-data-node) container.
  *
  *  Paths are those set in the central-data-node Dockerfile (CCDN_QUEUE_DIR, CCDN_QUARTERBACKUP_DIR).
+ *  Since 1.3.2 the zKDK deletes dequeued reports instead of archiving them (ArchivingReportRepository is
+ *  deprecated in favour of the quarter-reports collection), so the archive should stay empty for new TANs.
  *  Queue files are only read by the zKDK at startup, so files written here take effect after [[restart]].
  */
 class CcdnContainer(val service: String) {
@@ -23,8 +25,12 @@ class CcdnContainer(val service: String) {
 
   def queuedReports: Seq[JsObject] = glob(s"$queueDir/*.json").map(p => Json.parse(read(p)).as[JsObject])
 
-  /** Where ArchivingReportRepository moved the report after the last workflow step. */
+  /** Where the deprecated ArchivingReportRepository moved the report after the last workflow step. */
   def archivedFile(tan: String): Option[String] = glob(s"$archiveDir/*/*$tan*.json").headOption
+
+  /** Write `report` into the queue under the file name FSBackedReportRepository uses. */
+  def enqueue(report: JsObject): Unit =
+    write(s"$queueDir/Report_${(report \ "site" \ "code").as[String]}_${(report \ "id").as[String]}.json", Json.stringify(report))
 
   def read(path: String): String = DockerCompose.exec(service, s"cat '$path'")
 

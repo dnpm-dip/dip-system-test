@@ -77,13 +77,13 @@
 
 ## zKDK backups (`CcdnBackupSpec`)
 
-- ✓ MVH-consented report → `submission` and `report` document in `ccdn.backup`, report leaves the queue and is archived ([counter] to the missing-keyfile test)
+- ✓ MVH-consented report → `submission` and `report` document in `ccdn.backup`, report is stored in `quarter-reports` and deleted from the queue, no longer archived to the file system (ArchivingReportRepository deprecated since 1.3.2) ([counter] to the missing-keyfile test)
 - ✓ Backup documents: plaintext `tan`/`site`/`usecase`/`type`/`submittedAt` correct; `content` has exactly the fields of `EncryptionService.Encrypted`, valid base64, IV 16 bytes, encrypted key one RSA block, ciphertext not JSON
 - ✓ Backups decrypt with `crypto/private.pem` (decrypted submission/report carry the TAN and patient ID)
 - ✓ Submission of ~14.5 MB (node1's upload limit raised to 16 MB for this) whose encrypted backup exceeds MongoDB's 16 MB document limit → backed up and dequeued; ciphertext split into ≥ 2 parts in `largeBackupParts` (`content.ciphertextParts` lists them in order of their `index`), [counter] the report backup stays a single document; the submission decrypted with `BackupCrypto` and extracted with the PROD `backup-extract.sh` (downloaded from the public central-data-node-deployment repository, `main`) both equal the submission served by the DIP node
 - ✓ Patient of that split backup deleted → backup ends up with only a `deletion` document for the TAN and its parts are removed from `largeBackupParts`; [counter] an injected part of another TAN (same site/use case/type) remains
-- ✓ Report without MVH consent (injected into the queue: the DIP node rejects uploads without sequencing consent — checked as precondition) → no backup documents, but dequeued into `quarter-reports`
-- ✓ Prefilled queue re-delivers an already backed-up and archived report → still exactly one `submission` and one `report` document (WARN "already exists; skipped" for both); report leaves the queue, existing archived file kept (WARN "already exists in backup folder")
+- ✓ Report without MVH consent (injected into the queue, rebuilt from the `quarter-reports` entry of a consented report: the DIP node rejects uploads without sequencing consent — checked as precondition) → no backup documents, but dequeued into `quarter-reports`
+- ✓ Prefilled queue re-delivers an already backed-up and flushed report (rebuilt from its `quarter-reports` entry) → still exactly one `submission` and one `report` document (WARN "already exists; skipped" for both); report leaves the queue, still exactly one `quarter-reports` entry (WARN "for quarter report already exists; skipped")
 - ✓ Keyfile missing → report stays in the queue in state `confirmed`, no backup documents, ERROR logged
 - ✓ Keyfile restored → the stuck report is backed up and dequeued
 - ✓ `polling.minNumSubmissionDownloads`: 3 left-over `confirmed` reports per instance (produced with a missing keyfile) → ccdn-rd (set to 1) backs up one submission per workflow cycle, [counter] ccdn-mtb (set to 25) backs up all three in one cycle

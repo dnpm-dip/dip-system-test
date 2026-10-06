@@ -18,7 +18,8 @@ import de.dnpm.dip.integration.support.{BackupCrypto, BackupExtractScript, CcdnC
  *  After a report is confirmed to its DIP node, the zKDK
  *    → downloads the submission and stores it encrypted in ccdn.backup  (status "submissionbackedup")
  *    → stores the report encrypted in ccdn.backup                       (status "reportbackedup")
- *    → stores the report in plain text in ccdn.quarter-reports and removes it from its queue
+ *    → stores the report in plain text in ccdn.quarter-reports and deletes it from its queue
+ *      (no longer archived to the file system: ArchivingReportRepository is deprecated since 1.3.2)
  *  Reports without MVH consent skip both backup steps. DeletionEvents polled from the DIP nodes
  *  remove a TAN's backups and are themselves backed up.
  *
@@ -98,8 +99,9 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     val (tan, _)  = upload("mtb", patientId)
 
     awaitBackedUpAndFlushed(tan)
-    withClue(s"TAN=$tan should have been moved to the archive: ") {
-      ccdnMtb.archivedFile(tan) shouldBe defined
+    awaitFlushedByZkdk(tan, "mtb")
+    withClue(s"TAN=$tan should no longer be archived to the file system: ") {
+      ccdnMtb.archivedFile(tan) shouldBe empty
     }
     consented = Some(tan -> patientId)
   }
@@ -294,8 +296,8 @@ class CcdnBackupSpec extends DipIntegrationSuite {
 
     // A report in state "confirmed" (i.e. already confirmed to the DIP node) with a TAN unknown
     // to the DIP node, so the zKDK has no reason to contact the DIP node about it.
-    val archived = ccdnMtb.archivedFile(templateTan).getOrElse(fail(s"No archived report for TAN=$templateTan"))
-    val template = Json.parse(ccdnMtb.read(archived)).as[JsObject]
+    val template = CcdnMongo.queuedReportFromQuarterReports(templateTan, "MTB")
+      .getOrElse(fail(s"No quarter-reports entry for TAN=$templateTan"))
     val tan      = randomHex()
     val report   = template ++ Json.obj(
       "id"            -> tan,
@@ -303,8 +305,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
       "status"        -> "confirmed",
       "consentStatus" -> ((template \ "consentStatus").asOpt[JsObject].getOrElse(Json.obj()) ++ Json.obj("mv-consent" -> false))
     )
-    val fileName = archived.split('/').last.replace(templateTan, tan)
-    ccdnMtb.write(s"${ccdnMtb.queueDir}/$fileName", Json.stringify(report))
+    ccdnMtb.enqueue(report)
     ccdnMtb.restart()
 
     awaitFlushedByZkdk(tan, "mtb")
@@ -324,23 +325,22 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   it should "keep a single backup per document when a prefilled queue re-delivers a backed-up report" in {
     val (tan, _) = upload("mtb")
     awaitBackedUpAndFlushed(tan)
-    val archived = ccdnMtb.archivedFile(tan).getOrElse(fail(s"No archived report for TAN=$tan"))
+    awaitFlushedByZkdk(tan, "mtb")
+    val flushed = CcdnMongo.queuedReportFromQuarterReports(tan, "MTB").getOrElse(fail(s"No quarter-reports entry for TAN=$tan"))
 
     // Simulate a zKDK start-up with a prefilled queue: put the report back in state "confirmed",
-    // so that submission and report are backed up a second time. The archived copy stays, so
-    // the final step also collides with the existing file in the archive.
-    val fileName = archived.split('/').last
-    val requeued = Json.parse(ccdnMtb.read(archived)).as[JsObject] ++ Json.obj("status" -> "confirmed")
-    ccdnMtb.write(s"${ccdnMtb.queueDir}/$fileName", Json.stringify(requeued))
+    // so that submission and report are backed up a second time. Its quarter-reports entry stays, so
+    // the final step also collides with the existing entry there.
+    ccdnMtb.enqueue(flushed ++ Json.obj("status" -> "confirmed"))
     val since = ccdnMtb.restart()
 
     eventually(90_000L) {
       for (kind <- Seq("Submission", "Report")) withClue(s"WARN about the existing $kind backup of TAN=$tan: ") {
         ccdnMtb.warnedExistingBackup(since, kind, tan) shouldBe true
       }
-      withClue(s"WARN about $fileName already being archived: ") {
+      withClue(s"WARN about the existing quarter-reports entry of TAN=$tan: ") {
         ccdnMtb.logsSince(since).linesIterator.exists(l =>
-          l.contains("WARN") && l.contains(s"File $fileName already exists in backup folder")
+          l.contains("WARN") && l.contains(s"Report $tan from site") && l.contains("for quarter report already exists; skipped")
         ) shouldBe true
       }
       withClue(s"TAN=$tan still in the ccdn-mtb queue: ") {
@@ -348,8 +348,8 @@ class CcdnBackupSpec extends DipIntegrationSuite {
       }
     }
     CcdnMongo.backupTypes(tan) shouldBe Seq("report", "submission")
-    withClue("the existing archived copy must be kept: ") {
-      ccdnMtb.archivedFile(tan) shouldBe Some(archived)
+    withClue("still exactly one quarter-reports entry: ") {
+      CcdnMongo.quarterReportDocs(tan, "MTB") should have size 1
     }
   }
 
