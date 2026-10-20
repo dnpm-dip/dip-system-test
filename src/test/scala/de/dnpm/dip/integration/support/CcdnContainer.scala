@@ -7,8 +7,8 @@ import play.api.libs.json.{JsObject, Json}
 /** Queue, archive and log access to a running zKDK (central-data-node) container.
  *
  *  Paths are those set in the central-data-node Dockerfile (CCDN_QUEUE_DIR, CCDN_QUARTERBACKUP_DIR).
- *  Since 1.3.2 the zKDK deletes dequeued reports instead of archiving them (ArchivingReportRepository is
- *  deprecated in favour of the quarter-reports collection), so the archive should stay empty for new TANs.
+ *  Since central-archive:1.2 the zKDK deletes dequeued reports instead of archiving them (ArchivingReportRepository
+ *  was removed in favour of the quarter-reports collection), so the archive should stay empty for new TANs.
  *  Queue files are only read by the zKDK at startup, so files written here take effect after [[restart]].
  */
 class CcdnContainer(val service: String) {
@@ -25,12 +25,21 @@ class CcdnContainer(val service: String) {
 
   def queuedReports: Seq[JsObject] = glob(s"$queueDir/*.json").map(p => Json.parse(read(p)).as[JsObject])
 
-  /** Where the deprecated ArchivingReportRepository moved the report after the last workflow step. */
+  /** Where the removed ArchivingReportRepository moved the report after the last workflow step. */
   def archivedFile(tan: String): Option[String] = glob(s"$archiveDir/*/*$tan*.json").headOption
 
   /** Write `report` into the queue under the file name FSBackedReportRepository uses. */
   def enqueue(report: JsObject): Unit =
-    write(s"$queueDir/Report_${(report \ "site" \ "code").as[String]}_${(report \ "id").as[String]}.json", Json.stringify(report))
+    write(queueFileName(report), Json.stringify(report))
+
+  private def queueFileName(report: JsObject): String =
+    s"$queueDir/Report_${(report \ "site" \ "code").as[String]}_${(report \ "id").as[String]}.json"
+
+  /** Like [[enqueue]], but while the container is stopped (see [[stop]]). */
+  def enqueueWhileStopped(report: JsObject): Unit = {
+    DockerCompose.run(service, s"cat > '${queueFileName(report)}'", Some(Json.stringify(report).getBytes(UTF_8)))
+    ()
+  }
 
   def read(path: String): String = DockerCompose.exec(service, s"cat '$path'")
 
@@ -48,6 +57,18 @@ class CcdnContainer(val service: String) {
     since
   }
 
+  def stop(): Unit = DockerCompose.stopService(service)
+
+  /** Start the stopped container; returns a timestamp for [[logsSince]] that covers the new process. */
+  def start(): Instant = {
+    val since = Instant.now().minusSeconds(1)
+    DockerCompose.startService(service)
+    since
+  }
+
+  /** How often Docker has restarted the current container, i.e. how often the zKDK process exited (restart: unless-stopped). */
+  def restartCount: Int = DockerCompose.restartCount(service)
+
   /** Recreate the container with `env` applied to docker-compose.yml; returns a timestamp for [[logsSince]]. */
   def recreate(env: (String, String)*): Instant = {
     val since = Instant.now().minusSeconds(1)
@@ -59,7 +80,7 @@ class CcdnContainer(val service: String) {
     logsSince(since).linesIterator.count(_.contains("Conducting scheduled reporting workflow"))
 
   /** For each of `tans` whose submission was backed up since `since` (DEBUG "Backed up Submission …" of
-   *  MongodbPersistenceServiceImpl), the number of the workflow cycle it happened in, counting from 1.
+   *  MongodbLongTermStore), the number of the workflow cycle it happened in, counting from 1.
    *  Cycles do not overlap: the scheduler awaits each workflow run.
    */
   def submissionBackupCycles(since: Instant, tans: Seq[String]): Map[String, Int] =
@@ -69,7 +90,7 @@ class CcdnContainer(val service: String) {
         (cycle, found ++ tans.find(tan => line.contains(s"Backed up Submission $tan from site")).map(_ -> cycle))
     }._2
 
-  /** Whether the logs contain the WARN that MongodbPersistenceServiceImpl emits when skipping an existing backup. */
+  /** Whether the logs contain the WARN that MongodbLongTermStore emits when skipping an existing backup. */
   def warnedExistingBackup(since: Instant, kind: String, tan: String): Boolean =
     logsSince(since).linesIterator.exists(l =>
       l.contains("WARN") && l.contains(s"Backup of $kind $tan from site") && l.contains("already exists; skipped")

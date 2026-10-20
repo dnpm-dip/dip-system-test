@@ -232,8 +232,8 @@ services:
       CCDN_BFARM_AUTH_URL: http://mock-bfarm:8080/bfarm/oauth/token
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
-      CCDN_MONGODB_URI: mongodb://mongodb:27017/ccdn
-      # Overridable so that tests can recreate ccdn-mtb without a usable keyfile (see CcdnBackupSpec)
+      # Both overridable so that tests can recreate ccdn-mtb misconfigured (see CcdnBackupSpec)
+      CCDN_MONGODB_URI: ${CCDN_MTB_MONGODB_URI:-mongodb://mongodb:27017/ccdn}
       CCDN_BACKUP_ENCRYPTION_PUBLIC_KEY_PATH: ${CCDN_MTB_PUBLIC_KEY_PATH:-/ccdn_config/public.pem}
       TZ: Europe/Berlin
     volumes:
@@ -259,8 +259,8 @@ services:
       CCDN_BFARM_AUTH_URL: http://mock-bfarm:8080/bfarm/oauth/token
       CCDN_BFARM_AUTH_CLIENT_ID: ${BFARM_CLIENT_ID:-dummy-client-id}
       CCDN_BFARM_AUTH_CLIENT_SECRET: ${BFARM_CLIENT_SECRET:-dummy-client-secret}
-      CCDN_MONGODB_URI: mongodb://mongodb:27017/ccdn
-      # Overridable so that tests can recreate ccdn-rd without a usable keyfile (see CcdnBackupSpec)
+      # Both overridable so that tests can recreate ccdn-rd misconfigured (see CcdnBackupSpec)
+      CCDN_MONGODB_URI: ${CCDN_RD_MONGODB_URI:-mongodb://mongodb:27017/ccdn}
       CCDN_BACKUP_ENCRYPTION_PUBLIC_KEY_PATH: ${CCDN_RD_PUBLIC_KEY_PATH:-/ccdn_config/public.pem}
       TZ: Europe/Berlin
     volumes:

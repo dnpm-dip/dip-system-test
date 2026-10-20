@@ -77,16 +77,18 @@
 
 ## zKDK backups (`CcdnBackupSpec`)
 
-- ✓ MVH-consented report → `submission` and `report` document in `ccdn.backup`, report is stored in `quarter-reports` and deleted from the queue, no longer archived to the file system (ArchivingReportRepository deprecated since 1.3.2) ([counter] to the missing-keyfile test)
+- ✓ MVH-consented report → `submission` and `report` document in `ccdn.backup`, report is stored in `quarter-reports` and deleted from the queue, no longer archived to the file system (ArchivingReportRepository removed in central-archive:1.2) ([counter] to the missing-keyfile test)
 - ✓ Backup documents: plaintext `tan`/`site`/`usecase`/`type`/`submittedAt` correct; `content` has exactly the fields of `EncryptionService.Encrypted`, valid base64, IV 16 bytes, encrypted key one RSA block, ciphertext not JSON
 - ✓ Backups decrypt with `crypto/private.pem` (decrypted submission/report carry the TAN and patient ID)
 - ✓ Submission of ~14.5 MB (node1's upload limit raised to 16 MB for this) whose encrypted backup exceeds MongoDB's 16 MB document limit → backed up and dequeued; ciphertext split into ≥ 2 parts in `largeBackupParts` (`content.ciphertextParts` lists them in order of their `index`), [counter] the report backup stays a single document; the submission decrypted with `BackupCrypto` and extracted with the PROD `backup-extract.sh` (downloaded from the public central-data-node-deployment repository, `main`) both equal the submission served by the DIP node
 - ✓ Patient of that split backup deleted → backup ends up with only a `deletion` document for the TAN and its parts are removed from `largeBackupParts`; [counter] an injected part of another TAN (same site/use case/type) remains
 - ✓ Report without MVH consent (injected into the queue, rebuilt from the `quarter-reports` entry of a consented report: the DIP node rejects uploads without sequencing consent — checked as precondition) → no backup documents, but dequeued into `quarter-reports`
 - ✓ Prefilled queue re-delivers an already backed-up and flushed report (rebuilt from its `quarter-reports` entry) → still exactly one `submission` and one `report` document (WARN "already exists; skipped" for both); report leaves the queue, still exactly one `quarter-reports` entry (WARN "for quarter report already exists; skipped")
-- ✓ Keyfile missing → report stays in the queue in state `confirmed`, no backup documents, ERROR logged
-- ✓ Keyfile restored → the stuck report is backed up and dequeued
-- ✓ `polling.minNumSubmissionDownloads`: 3 left-over `confirmed` reports per instance (produced with a missing keyfile) → ccdn-rd (set to 1) backs up one submission per workflow cycle, [counter] ccdn-mtb (set to 25) backs up all three in one cycle
+- ✓ Keyfile missing → the zKDK refuses to start (ERROR "RSA public key file '…' doesn't exist or isn't readable" and "Invalid configuration, MVH Reporting service not started", container restarted by Docker, no workflow cycle); a report uploaded meanwhile stays `unsubmitted` in the DIP node, no backup documents
+- ✓ Keyfile restored → that report is polled, backed up and dequeued
+- ✓ Malformed `CCDN_MONGODB_URI` → the zKDK refuses to start (ERROR "Invalid MongoDB URI …", restarted, no workflow cycle)
+- ✓ `CCDN_MONGODB_URI` pointing to an unreachable host → the zKDK refuses to start (ERROR "Couldn't connect to MongoDB", restarted, no workflow cycle)
+- ✓ `polling.minNumSubmissionDownloads`: 3 left-over `confirmed` reports per instance (produced while the zKDKs are stopped: uploaded, confirmed to the DIP node by the test and written into their queues in state `confirmed`) → ccdn-rd (set to 1) backs up one submission per workflow cycle, [counter] ccdn-mtb (set to 25) backs up all three in one cycle
 - ✓ Patient with initial + correction deleted → one DeletionEvent per TAN from the DIP node; backup ends up with only a `deletion` document per TAN
 - ✓ zKDK restart re-fetches the deletion history (WARN logged) → still exactly one `deletion` document per TAN
 - ✓ RD deletion of a patient on UK1 → RD backups replaced by a `deletion` document, MTB backups of the same patient untouched, no MTB DeletionEvent

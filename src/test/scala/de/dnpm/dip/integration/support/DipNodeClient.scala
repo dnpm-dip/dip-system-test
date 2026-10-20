@@ -27,6 +27,9 @@ class DipNodeClient(val baseUrl: String) {
     token.fold(req)(t => req.header("Authorization", s"Bearer $t")).send(backend)
   }
 
+  def postWithoutBody(path: String): Response[Either[String, String]] =
+    basicRequest.post(url(path)).send(backend)
+
   def postForm(path: String, fields: Map[String, String]): Response[Either[String, String]] = {
     basicRequest
       .post(url(path))

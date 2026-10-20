@@ -19,9 +19,10 @@ import de.dnpm.dip.integration.support.{BackupCrypto, BackupExtractScript, CcdnC
  *    → downloads the submission and stores it encrypted in ccdn.backup  (status "submissionbackedup")
  *    → stores the report encrypted in ccdn.backup                       (status "reportbackedup")
  *    → stores the report in plain text in ccdn.quarter-reports and deletes it from its queue
- *      (no longer archived to the file system: ArchivingReportRepository is deprecated since 1.3.2)
+ *      (no longer archived to the file system: ArchivingReportRepository was removed in central-archive:1.2)
  *  Reports without MVH consent skip both backup steps. DeletionEvents polled from the DIP nodes
- *  remove a TAN's backups and are themselves backed up.
+ *  remove a TAN's backups and are themselves backed up. Without a usable encryption keyfile or MongoDB
+ *  the zKDK refuses to start.
  *
  *  Several tests restart or recreate ccdn-mtb, so this spec runs last. Tests are ordered:
  *  later ones reuse TANs produced by earlier ones and cancel if those are missing.
@@ -32,9 +33,10 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   private val ccdnRd  = new CcdnContainer("ccdn-rd")
 
   private val MissingKeyPath = "/ccdn_config/does-not-exist.pem"
-  // docker-compose.yml variables overriding the keyfile path per zKDK instance
+  // docker-compose.yml variables overriding the keyfile path and the MongoDB URI per zKDK instance
   private val KeyPathVar     = Map(ccdnMtb -> "CCDN_MTB_PUBLIC_KEY_PATH", ccdnRd -> "CCDN_RD_PUBLIC_KEY_PATH")
-  private var keyfileHidden  = Set.empty[CcdnContainer]
+  private val MongoUriVar    = Map(ccdnMtb -> "CCDN_MTB_MONGODB_URI", ccdnRd -> "CCDN_RD_MONGODB_URI")
+  private var misconfigured  = Set.empty[CcdnContainer]
 
   // State handed on between tests
   private var consented: Option[(String, String)]           = None // (TAN, patient ID)
@@ -44,19 +46,40 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   private var splitBackup: Option[(String, String)]           = None // (TAN, patient ID)
 
   override def afterAll(): Unit =
-    try keyfileHidden.foreach(restoreKeyfile)
+    try misconfigured.foreach(restoreConfig)
     finally super.afterAll()
 
-  /** Recreate `ccdn` without a usable encryption keyfile; returns a timestamp for [[CcdnContainer.logsSince]]. */
-  private def hideKeyfile(ccdn: CcdnContainer): Instant = {
-    keyfileHidden += ccdn
-    ccdn.recreate(KeyPathVar(ccdn) -> MissingKeyPath)
+  /** Recreate `ccdn` with `env` overriding its configuration; returns a timestamp for [[CcdnContainer.logsSince]]. */
+  private def misconfigure(ccdn: CcdnContainer, env: (String, String)): Instant = {
+    misconfigured += ccdn
+    ccdn.recreate(env)
   }
 
-  private def restoreKeyfile(ccdn: CcdnContainer): Instant = {
+  private def restoreConfig(ccdn: CcdnContainer): Instant = {
     val since = ccdn.recreate()
-    keyfileHidden -= ccdn
+    misconfigured -= ccdn
     since
+  }
+
+  /** Waits until the zKDK in `ccdn` has exited on startup (and been restarted by Docker) with `error` logged,
+   *  and checks that it never ran a workflow cycle.
+   */
+  private def awaitStartupRefused(ccdn: CcdnContainer, since: Instant, error: String): Unit = {
+    eventually(60_000L) {
+      val lines = ccdn.logsSince(since).linesIterator.toSeq
+      withClue(s"ERROR '$error' in the ${ccdn.service} logs: ") {
+        lines.exists(l => l.contains("ERROR") && l.contains(error)) shouldBe true
+      }
+      withClue(s"ERROR about the refused start in the ${ccdn.service} logs: ") {
+        lines.exists(l => l.contains("ERROR") && l.contains("Invalid configuration, MVH Reporting service not started")) shouldBe true
+      }
+      withClue(s"${ccdn.service} should have exited and been restarted by Docker: ") {
+        ccdn.restartCount should be >= 1
+      }
+    }
+    withClue(s"${ccdn.service} must not run a workflow cycle: ") {
+      ccdn.workflowCyclesSince(since) shouldBe 0
+    }
   }
 
   private def upload(useCase: String, patientId: String = UUID.randomUUID().toString): (String, String) = {
@@ -73,12 +96,27 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     (json ++ Json.obj("metadata" -> ((json \ "metadata").as[JsObject] ++ Json.obj(fields: _*)))).toString()
   }
 
-  private def dipReportCreatedAt(useCase: String, tan: String): LocalDateTime = {
+  private def dipReport(useCase: String, tan: String): JsObject = {
     val resp = node1.get(s"/$useCase/peer2peer/mvh/submission-reports/$tan")
     withClue(s"GET submission-report $tan: ${resp.code} ${resp.body.merge}\n") {
       resp.code.code shouldBe 200
     }
-    LocalDateTime.parse((Json.parse(resp.body.getOrElse(fail("Unexpected error body"))) \ "createdAt").as[String])
+    Json.parse(resp.body.getOrElse(fail("Unexpected error body"))).as[JsObject]
+  }
+
+  private def dipReportCreatedAt(useCase: String, tan: String): LocalDateTime =
+    LocalDateTime.parse((dipReport(useCase, tan) \ "createdAt").as[String])
+
+  /** Does what a zKDK does up to state "confirmed": confirms the report of `tan` to the DIP node
+   *  as submitted and returns it as the zKDK would keep it in its queue.
+   */
+  private def confirmInPlaceOfZkdk(useCase: String, tan: String): JsObject = {
+    val report = dipReport(useCase, tan)
+    val resp   = node1.postWithoutBody(s"/$useCase/peer2peer/mvh/submission-reports/$tan:submitted")
+    withClue(s"POST submission-report $tan:submitted: ${resp.code} ${resp.body.merge}\n") {
+      resp.code.code shouldBe 200
+    }
+    report ++ Json.obj("status" -> "confirmed")
   }
 
   private def awaitBackedUpAndFlushed(tan: String, timeoutMs: Long = 90_000L, ccdn: CcdnContainer = ccdnMtb): Unit =
@@ -94,7 +132,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
   // ─── Backup of consented reports ───────────────────────────────────────────
 
   "The zKDK backup" should "back up submission and report of an MVH-consented report and remove it from the queue" in {
-    // Also the [counter] to the missing-keyfile test: with the keyfile present, the report does not stay queued.
+    // Also the [counter] to the missing-keyfile test: with the keyfile present, the report is polled and backed up.
     val patientId = UUID.randomUUID().toString
     val (tan, _)  = upload("mtb", patientId)
 
@@ -353,57 +391,65 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     }
   }
 
-  // ─── Missing encryption keyfile ────────────────────────────────────────────
+  // ─── Misconfiguration ──────────────────────────────────────────────────────
 
-  it should "keep a report in the queue in state 'confirmed' while the encryption keyfile is missing" in {
-    val since     = hideKeyfile(ccdnMtb)
-    val (tan, _)  = upload("mtb")
+  it should "refuse to start while the encryption keyfile is missing, leaving new reports unpolled" in {
+    val since    = misconfigure(ccdnMtb, KeyPathVar(ccdnMtb) -> MissingKeyPath)
+    val (tan, _) = upload("mtb")
 
-    awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
-    eventually(90_000L) {
-      withClue(s"ERROR about the failed submission backup of TAN=$tan: ") {
-        ccdnMtb.logsSince(since).linesIterator.exists(l =>
-          l.contains("ERROR") && l.contains(s"Failed to back up Submission $tan")
-        ) shouldBe true
-      }
-    }
-    val queued = ccdnMtb.queueFile(tan).map(ccdnMtb.read).getOrElse(fail(s"TAN=$tan is no longer in the ccdn-mtb queue"))
-    (Json.parse(queued) \ "status").asOpt[String] shouldBe Some("confirmed")
+    awaitStartupRefused(ccdnMtb, since, s"RSA public key file '$MissingKeyPath' doesn't exist or isn't readable")
+    // Several polling periods (5 s) in which a running zKDK would have polled the report
+    Thread.sleep(15_000L)
+    awaitReportStatusInDipNode(tan, "Unsubmitted", useCase = "mtb", timeoutMs = 5_000L)
     CcdnMongo.backupDocs(tan) shouldBe empty
     stuckWithoutKey = Some(tan)
   }
 
-  it should "back up and dequeue the stuck report once the keyfile is back" in {
+  it should "poll, back up and dequeue that report once the keyfile is back" in {
     val tan = stuckWithoutKey.getOrElse(cancel("depends on the missing-keyfile test"))
-    restoreKeyfile(ccdnMtb)
+    restoreConfig(ccdnMtb)
     awaitBackedUpAndFlushed(tan)
+    awaitFlushedByZkdk(tan, "mtb")
+  }
+
+  it should "refuse to start with a malformed MongoDB URI" in {
+    val since = misconfigure(ccdnMtb, MongoUriVar(ccdnMtb) -> "not-a-mongodb-uri")
+    try awaitStartupRefused(ccdnMtb, since, "Invalid MongoDB URI configured via ENV variable CCDN_MONGODB_URI")
+    finally restoreConfig(ccdnMtb)
+  }
+
+  it should "refuse to start when MongoDB cannot be reached with the configured URI" in {
+    // A short server selection timeout instead of the default 30 s keeps the restart loop fast
+    val since = misconfigure(ccdnMtb, MongoUriVar(ccdnMtb) -> "mongodb://unreachable.invalid:27017/ccdn?serverSelectionTimeoutMS=3000")
+    try awaitStartupRefused(ccdnMtb, since, "Couldn't connect to MongoDB")
+    finally restoreConfig(ccdnMtb)
   }
 
   // ─── Download limit per cycle (polling.minNumSubmissionDownloads) ──────────
 
   it should "back up at most minNumSubmissionDownloads left-over submissions per cycle (ccdn-rd: 1, ccdn-mtb: 25)" in {
     // The limit only applies to reports confirmed in an earlier cycle: reports confirmed in the current
-    // cycle raise it to their number. Left-over reports are produced by hiding the keyfile, so that
-    // they stay in state "confirmed". ccdn-mtb is the [counter]: the same left-overs all in one cycle.
+    // cycle raise it to their number. Left-over reports are produced while the zKDKs are stopped: uploaded,
+    // confirmed to the DIP node in their place and put into their queues in state "confirmed".
+    // ccdn-mtb is the [counter]: the same left-overs all in one cycle.
+    misconfigured.foreach(restoreConfig)
     withClue("precondition: other 'confirmed' reports in the ccdn-rd queue would compete for its single download slot: ") {
       ccdnRd.queuedReports
         .filter(r => (r \ "status").asOpt[String].contains("confirmed"))
         .flatMap(r => (r \ "id").asOpt[String]) shouldBe empty
     }
 
-    hideKeyfile(ccdnMtb)
-    hideKeyfile(ccdnRd)
-    val tans = Map(
-      ccdnMtb -> Seq.fill(3)(upload("mtb")._1),
-      ccdnRd  -> Seq.fill(3)(upload("rd")._1)
-    )
-    for ((useCase, ts) <- Seq("mtb" -> tans(ccdnMtb), "rd" -> tans(ccdnRd)); tan <- ts)
-      awaitReportStatusInDipNode(tan, "Submitted", useCase = useCase, timeoutMs = 90_000L)
-    for (tan <- tans.values.flatten) withClue(s"precondition: TAN=$tan backed up despite the missing keyfile: ") {
-      CcdnMongo.backupDocs(tan) shouldBe empty
-    }
+    val instances = Seq(ccdnMtb -> "mtb", ccdnRd -> "rd")
+    instances.foreach(_._1.stop())
+    val tans =
+      try instances.map { case (ccdn, useCase) =>
+        val ts = Seq.fill(3)(upload(useCase)._1)
+        ts.foreach(tan => ccdn.enqueueWhileStopped(confirmInPlaceOfZkdk(useCase, tan)))
+        ccdn -> ts
+      }.toMap
+      catch { case e: Throwable => instances.foreach(_._1.start()); throw e }
 
-    val since = tans.keys.map(ccdn => ccdn -> restoreKeyfile(ccdn)).toMap
+    val since = tans.keys.map(ccdn => ccdn -> ccdn.start()).toMap
     for ((ccdn, ts) <- tans; tan <- ts) awaitBackedUpAndFlushed(tan, timeoutMs = 120_000L, ccdn = ccdn)
 
     val cycles = tans.map { case (ccdn, ts) => ccdn -> ccdn.submissionBackupCycles(since(ccdn), ts) }
