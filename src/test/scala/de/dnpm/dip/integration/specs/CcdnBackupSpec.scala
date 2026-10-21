@@ -532,14 +532,97 @@ class CcdnBackupSpec extends DipIntegrationSuite {
       }
     }
 
-    // Give ccdn-mtb two full cycles to (wrongly) apply anything before checking that nothing changed
+    // Give ccdn-mtb two full deletion runs to (wrongly) apply anything before checking that nothing changed
     eventually(60_000L) {
-      ccdnMtb.workflowCyclesSince(deletedAt) should be >= 2
+      ccdnMtb.deletionCyclesSince(deletedAt) should be >= 2
     }
     withClue(s"MTB backups of the same patient (TAN=$mtbTan) must remain: ") {
       CcdnMongo.backupTypes(mtbTan) shouldBe Seq("report", "submission")
     }
     deletionEvents(node1, "mtb").flatMap(e => (e \ "tan").asOpt[String]) should not contain mtbTan
+  }
+
+  it should "never run the reporting and the deletion workflow at the same time" in {
+    // Both workflows are scheduled on one single-threaded executor (central-data-node 4467f4d), every 5 s each.
+    // An 8 s BfArM upload (below the zKDK's 10 s BfArM timeout) stretches a reporting run over at least one
+    // deletion tick, while a DeletionEvent is pending, so that a concurrent scheduler would interleave them.
+    val deletionPeriodMs = 5_000L
+    val patientId        = UUID.randomUUID().toString
+    val (deletedTan, _)  = upload("mtb", patientId)
+    awaitBackedUpAndFlushed(deletedTan)
+
+    val since  = Instant.now().minusSeconds(1)
+    val stubId = bfarmWiremock.addStub(Json.obj(
+      "priority" -> 1,
+      "request"  -> Json.obj("method" -> "POST", "urlPattern" -> ".*/upload.*"),
+      "response" -> Json.obj(
+        "status"                 -> 200,
+        "headers"                -> Json.obj("Content-Type" -> "application/json"),
+        "jsonBody"               -> Json.obj("status" -> "ok"),
+        "fixedDelayMilliseconds" -> 8_000
+      )
+    ))
+    val (slowTan, lines, events) =
+      try {
+        val (slowTan, _) = upload("mtb")
+        val deleteResp   = node1.delete(s"/mtb/etl/patient/$patientId")
+        withClue(s"DELETE patient: ${deleteResp.code} ${deleteResp.body.merge}\n") {
+          deleteResp.code.code shouldBe 200
+        }
+        // Until the slow reporting run has completed and the DeletionEvent has been applied
+        eventually(120_000L) {
+          val lines  = ccdnMtb.logsSince(since).linesIterator.toVector
+          val events = CcdnContainer.workflowEvents(lines)
+          withClue(s"completed reporting run after the upload of TAN=$slowTan: ") {
+            val uploaded = lines.indexWhere(_.contains(s"SubmissionReport Uploaded: Site UK1, TAN $slowTan"))
+            events.exists(e => e.index > uploaded && uploaded >= 0 && e.kind == "reporting" && !e.started) shouldBe true
+          }
+          withClue(s"completed deletion run after applying the DeletionEvent of TAN=$deletedTan: ") {
+            val applied = lines.indexWhere(_.contains(s"for DeletionEvent $deletedTan from site"))
+            events.exists(e => e.index > applied && applied >= 0 && e.kind == "deletion" && !e.started) shouldBe true
+          }
+          (slowTan, lines, events)
+        }
+      } finally bfarmWiremock.removeStub(stubId)
+
+    withClue("all workflow runs are started by the same scheduler thread: ") {
+      events.filter(_.started).map(_.thread).distinct should have size 1
+    }
+    // A run already in progress at `since` only shows its end; drop it
+    val ordered = events.dropWhile(!_.started)
+    ordered.sliding(2).foreach {
+      case Seq(a, b) if a.started =>
+        withClue(s"the ${a.kind} run started at ${a.time} must complete before any other run starts:\n${lines(b.index)}\n") {
+          (b.kind, b.started) shouldBe (a.kind, false)
+        }
+      case Seq(a, b) =>
+        withClue(s"no run may complete without having started, after the ${a.kind} run completed at ${a.time}:\n${lines(b.index)}\n") {
+          b.started shouldBe true
+        }
+      case _ => ()
+    }
+
+    // With the order verified above, consecutive start and end events form one run each
+    val runs = ordered.grouped(2).collect { case Seq(start, end) if start.started && !end.started => start -> end }.toSeq
+    def runContaining(text: String) = {
+      val i = lines.indexWhere(_.contains(text))
+      runs.find { case (start, end) => start.index < i && i < end.index }
+    }
+    val (slowStart, slowEnd) = runContaining(s"SubmissionReport Uploaded: Site UK1, TAN $slowTan")
+      .getOrElse(fail(s"No workflow run contains the BfArM upload of TAN=$slowTan"))
+    withClue(s"the BfArM upload of TAN=$slowTan belongs to a reporting run: ") {
+      slowStart.kind shouldBe "reporting"
+    }
+    withClue(s"the slow reporting run (${slowStart.time} - ${slowEnd.time}) must span a deletion tick for this test to be meaningful: ") {
+      java.time.Duration.between(slowStart.time, slowEnd.time).toMillis should be > deletionPeriodMs
+    }
+    withClue(s"the DeletionEvent of TAN=$deletedTan is applied in a deletion run: ") {
+      runContaining(s"for DeletionEvent $deletedTan from site").map(_._1.kind) shouldBe Some("deletion")
+    }
+    withClue("the deletion tick missed during the slow reporting run is caught up afterwards: ") {
+      runs.exists { case (start, _) => start.kind == "deletion" && start.index > slowEnd.index } shouldBe true
+    }
+    CcdnMongo.backupTypes(deletedTan) shouldBe Seq("deletion")
   }
 
   // ─── quarter-reports collection ────────────────────────────────────────────

@@ -92,6 +92,7 @@
 - ✓ Patient with initial + correction deleted → one DeletionEvent per TAN from the DIP node; backup ends up with only a `deletion` document per TAN
 - ✓ zKDK restart re-fetches the deletion history (WARN logged) → still exactly one `deletion` document per TAN
 - ✓ RD deletion of a patient on UK1 → RD backups replaced by a `deletion` document, MTB backups of the same patient untouched, no MTB DeletionEvent
+- ✓ Reporting and deletion workflow never run concurrently (both polled every 5 s since central-data-node 4467f4d): with an 8 s delayed BfArM upload and a pending DeletionEvent, the ccdn-mtb logs show every run starting on the same scheduler thread and completing before the next run of either kind starts; the BfArM upload lies in a reporting run, the DeletionEvent in a deletion run; [counter] the slow reporting run lasts longer than one deletion period, so a deletion tick fell into it and was caught up afterwards
 - Deletion before backup (patient deleted while its report is still queued in the zKDK) → the zKDK cannot confirm/download it. Rare, handled manually — not tested
 - Deletion with `scope=query` → expected: no DeletionEvent, backup intact — not yet tested
 - Deletion with `scope=mvgenomseq` → expected: DeletionEvent emitted — not yet tested

@@ -1,7 +1,7 @@
 package de.dnpm.dip.integration.support
 
 import java.nio.charset.StandardCharsets.UTF_8
-import java.time.Instant
+import java.time.{Instant, LocalTime}
 import play.api.libs.json.{JsObject, Json}
 
 /** Queue, archive and log access to a running zKDK (central-data-node) container.
@@ -79,6 +79,10 @@ class CcdnContainer(val service: String) {
   def workflowCyclesSince(since: Instant): Int =
     logsSince(since).linesIterator.count(_.contains("Conducting scheduled reporting workflow"))
 
+  /** Runs of the deletion workflow, which applies DeletionEvents separately from the reporting workflow. */
+  def deletionCyclesSince(since: Instant): Int =
+    logsSince(since).linesIterator.count(_.contains("Conducting scheduled deletion workflow"))
+
   /** For each of `tans` whose submission was backed up since `since` (DEBUG "Backed up Submission …" of
    *  MongodbLongTermStore), the number of the workflow cycle it happened in, counting from 1.
    *  Cycles do not overlap: the scheduler awaits each workflow run.
@@ -95,4 +99,28 @@ class CcdnContainer(val service: String) {
     logsSince(since).linesIterator.exists(l =>
       l.contains("WARN") && l.contains(s"Backup of $kind $tan from site") && l.contains("already exists; skipped")
     )
+}
+
+object CcdnContainer {
+
+  /** A start ("Conducting scheduled … workflow") or end ("… workflow completed") line of one of the two workflows
+   *  MVHReportingService schedules; `kind` is "reporting" or "deletion", `index` the line's position in the logs.
+   *  Only start lines are logged on the scheduler thread; end lines come from whichever thread of the global
+   *  execution context completes the workflow's Future.
+   */
+  final case class WorkflowEvent(index: Int, time: LocalTime, thread: String, kind: String, started: Boolean)
+
+  // Console pattern of config/ccdn-*/logback.xml: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  private val LogLine  = """^(\d{2}:\d{2}:\d{2}\.\d{3}) \[([^\]]+)\] .*""".r
+  private val Started  = """.* - Conducting scheduled (reporting|deletion) workflow.*""".r
+  private val Finished = """.* - (Reporting|Deletion) workflow completed.*""".r
+
+  def workflowEvents(lines: IndexedSeq[String]): Seq[WorkflowEvent] =
+    lines.zipWithIndex.collect {
+      case (line @ LogLine(time, thread), i) if Started.matches(line) || Finished.matches(line) =>
+        line match {
+          case Started(kind)  => WorkflowEvent(i, LocalTime.parse(time), thread, kind, started = true)
+          case Finished(kind) => WorkflowEvent(i, LocalTime.parse(time), thread, kind.toLowerCase, started = false)
+        }
+    }
 }

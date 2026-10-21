@@ -47,6 +47,10 @@ Main operational config. Set via env var `CCDN_CONFIG_FILE` (default: `/ccdn_con
     "period": 10,
     "timeUnit": "SECONDS"
   },
+  "deletionEventPolling": {
+    "period": 1,
+    "timeUnit": "DAYS"
+  },
   "dataNodeIds": {
     "MTB": "KDKTUE005",
     "RD":  "KDKTUE002"
@@ -65,6 +69,8 @@ Main operational config. Set via env var `CCDN_CONFIG_FILE` (default: `/ccdn_con
 - `polling.minNumSubmissionDownloads` (optional, default 25) — per cycle, the zKDK downloads and backs up the submissions
   of as many `confirmed` reports as were confirmed in that cycle, but at least this many. The system test sets it
   to 25 for ccdn-mtb and 1 for ccdn-rd (see `CcdnBackupSpec`).
+- `deletionEventPolling.period` / `.timeUnit` (required since central-data-node 4467f4d) — how often to poll DIP nodes
+  for DeletionEvents and apply them to the backups. The system test sets 5 SECONDS for both zKDKs.
 - `dataNodeIds` — CCDN's own BfArM-registered node IDs per use case
 - `sites` — map of site ID → BfArM submitter info + active use cases. Only sites listed here are polled.
 
@@ -99,6 +105,10 @@ The CCDN sets the `Host` header to the site's virtualhost value when making requ
 3. `pollReports` — for each valid site × use case: `GET /api/{usecase}/peer2peer/mvh/submission-reports?status=Unsubmitted`.
 4. `uploadReports` — upload collected reports to BfArM.
 5. `confirmSubmissions` — for each successfully uploaded report: `POST /api/{usecase}/peer2peer/mvh/submission-reports/{id}:submitted`.
+
+Since central-data-node 4467f4d, DeletionEvents are no longer synced at the end of this cycle but in a separate
+deletion workflow (`getApiCompatibleDipSites`, then `syncDeletions`) with its own interval (`deletionEventPolling`).
+Both are scheduled on the same single-threaded executor, so they never run at the same time (see `CcdnBackupSpec`).
 
 ## Dependencies to Download / Build
 - The Docker image `ghcr.io/dnpm-dip/central-data-node:latest` must be pullable from GitHub Container Registry (may require `docker login ghcr.io`).

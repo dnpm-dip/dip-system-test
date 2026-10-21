@@ -5,6 +5,10 @@
     "startTime": "00:00:00",
     "minNumSubmissionDownloads": 25
   },
+  "deletionEventPolling": {
+    "period": 5,
+    "timeUnit": "SECONDS"
+  },
   "dataNodeIds": {
     "MTB": "TEST-MTB-001"
   },
