@@ -2,8 +2,7 @@
   "polling": {
     "period": 5,
     "timeUnit": "SECONDS",
-    "startTime": "00:00:00",
-    "minNumSubmissionDownloads": 25
+    "startTime": "00:00:00"
   },
   "deletionEventPolling": {
     "period": 5,

@@ -15,12 +15,15 @@ import de.dnpm.dip.integration.support.{BackupCrypto, BackupExtractScript, CcdnC
 
 /** Tests for the zKDK backup workflow (central-data-node, branch feature-centralbackups).
  *
- *  After a report is confirmed to its DIP node, the zKDK
+ *  After polling a report (status "unsubmitted"), the zKDK
  *    → downloads the submission and stores it encrypted in ccdn.backup  (status "submissionbackedup")
  *    → stores the report encrypted in ccdn.backup                       (status "reportbackedup")
+ *    → uploads the report to BfArM                                      (status "submitted")
+ *    → confirms the report to its DIP node                              (status "confirmed")
  *    → stores the report in plain text in ccdn.quarter-reports and deletes it from its queue
  *      (no longer archived to the file system: ArchivingReportRepository was removed in central-archive:1.2)
- *  Reports without MVH consent skip both backup steps. DeletionEvents polled from the DIP nodes
+ *  Backups come first since central-data-node 6e346e0, as the DIP node may delete a submission once it
+ *  has been confirmed. Reports without MVH consent skip both backup steps. DeletionEvents polled from the DIP nodes
  *  remove a TAN's backups and are themselves backed up. Without a usable encryption keyfile or MongoDB
  *  the zKDK refuses to start.
  *
@@ -106,18 +109,6 @@ class CcdnBackupSpec extends DipIntegrationSuite {
 
   private def dipReportCreatedAt(useCase: String, tan: String): LocalDateTime =
     LocalDateTime.parse((dipReport(useCase, tan) \ "createdAt").as[String])
-
-  /** Does what a zKDK does up to state "confirmed": confirms the report of `tan` to the DIP node
-   *  as submitted and returns it as the zKDK would keep it in its queue.
-   */
-  private def confirmInPlaceOfZkdk(useCase: String, tan: String): JsObject = {
-    val report = dipReport(useCase, tan)
-    val resp   = node1.postWithoutBody(s"/$useCase/peer2peer/mvh/submission-reports/$tan:submitted")
-    withClue(s"POST submission-report $tan:submitted: ${resp.code} ${resp.body.merge}\n") {
-      resp.code.code shouldBe 200
-    }
-    report ++ Json.obj("status" -> "confirmed")
-  }
 
   private def awaitBackedUpAndFlushed(tan: String, timeoutMs: Long = 90_000L, ccdn: CcdnContainer = ccdnMtb): Unit =
     eventually(timeoutMs) {
@@ -314,9 +305,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
 
   // ─── Reports without MVH consent ───────────────────────────────────────────
 
-  it should "not back up a report without MVH consent, but still remove it from the queue" in {
-    val (templateTan, _) = consented.getOrElse(cancel("depends on the consented-backup test"))
-
+  it should "not back up a report without MVH consent, but still submit it and remove it from the queue" in {
     // The DIP node rejects submissions without sequencing consent (Fatal issue in the metadata
     // validator), so such a report cannot come in through the ETL API: put it into the queue directly.
     val (_, body)  = generateFakeMvhSubmission("mtb")
@@ -332,20 +321,23 @@ class CcdnBackupSpec extends DipIntegrationSuite {
       deniedResp.code.code should (be >= 400 and be < 500)
     }
 
-    // A report in state "confirmed" (i.e. already confirmed to the DIP node) with a TAN unknown
-    // to the DIP node, so the zKDK has no reason to contact the DIP node about it.
-    val template = CcdnMongo.queuedReportFromQuarterReports(templateTan, "MTB")
-      .getOrElse(fail(s"No quarter-reports entry for TAN=$templateTan"))
-    val tan      = randomHex()
-    val report   = template ++ Json.obj(
-      "id"            -> tan,
-      "patient"       -> UUID.randomUUID().toString,
-      "status"        -> "confirmed",
-      "consentStatus" -> ((template \ "consentStatus").asOpt[JsObject].getOrElse(Json.obj()) ++ Json.obj("mv-consent" -> false))
-    )
-    ccdnMtb.enqueue(report)
-    ccdnMtb.restart()
+    // So upload a consented report and revoke the MVH consent in the zKDK's queued copy only: the zKDK
+    // then submits and confirms a report the DIP node knows. The copy is queued in state "unsubmitted" while
+    // ccdn-mtb is stopped, before it can poll the original (polling keeps an already queued report).
+    ccdnMtb.stop()
+    val tan =
+      try {
+        val (tan, _) = upload("mtb")
+        val report   = dipReport("mtb", tan)
+        ccdnMtb.enqueueWhileStopped(report ++ Json.obj(
+          "status"        -> "unsubmitted",
+          "consentStatus" -> ((report \ "consentStatus").asOpt[JsObject].getOrElse(Json.obj()) ++ Json.obj("mv-consent" -> false))
+        ))
+        tan
+      }
+      finally ccdnMtb.start()
 
+    awaitReportStatusInDipNode(tan, "Submitted", useCase = "mtb", timeoutMs = 90_000L)
     awaitFlushedByZkdk(tan, "mtb")
     eventually(30_000L) {
       withClue(s"TAN=$tan still in the ccdn-mtb queue: ") {
@@ -355,7 +347,7 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     withClue(s"a report without MVH consent must not be backed up: ") {
       CcdnMongo.backupDocs(tan) shouldBe empty
     }
-    withoutConsent = Some(tan -> LocalDateTime.parse((template \ "createdAt").as[String]))
+    withoutConsent = Some(tan -> dipReportCreatedAt("mtb", tan))
   }
 
   // ─── Idempotency ───────────────────────────────────────────────────────────
@@ -366,10 +358,11 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     awaitFlushedByZkdk(tan, "mtb")
     val flushed = CcdnMongo.queuedReportFromQuarterReports(tan, "MTB").getOrElse(fail(s"No quarter-reports entry for TAN=$tan"))
 
-    // Simulate a zKDK start-up with a prefilled queue: put the report back in state "confirmed",
-    // so that submission and report are backed up a second time. Its quarter-reports entry stays, so
-    // the final step also collides with the existing entry there.
-    ccdnMtb.enqueue(flushed ++ Json.obj("status" -> "confirmed"))
+    // Simulate a zKDK start-up with a prefilled queue: put the report back in state "unsubmitted",
+    // so that submission and report are backed up a second time (and the report is uploaded to BfArM
+    // and confirmed to the DIP node again). Its quarter-reports entry stays, so the final step also
+    // collides with the existing entry there.
+    ccdnMtb.enqueue(flushed ++ Json.obj("status" -> "unsubmitted"))
     val since = ccdnMtb.restart()
 
     eventually(90_000L) {
@@ -423,45 +416,6 @@ class CcdnBackupSpec extends DipIntegrationSuite {
     val since = misconfigure(ccdnMtb, MongoUriVar(ccdnMtb) -> "mongodb://unreachable.invalid:27017/ccdn?serverSelectionTimeoutMS=3000")
     try awaitStartupRefused(ccdnMtb, since, "Couldn't connect to MongoDB")
     finally restoreConfig(ccdnMtb)
-  }
-
-  // ─── Download limit per cycle (polling.minNumSubmissionDownloads) ──────────
-
-  it should "back up at most minNumSubmissionDownloads left-over submissions per cycle (ccdn-rd: 1, ccdn-mtb: 25)" in {
-    // The limit only applies to reports confirmed in an earlier cycle: reports confirmed in the current
-    // cycle raise it to their number. Left-over reports are produced while the zKDKs are stopped: uploaded,
-    // confirmed to the DIP node in their place and put into their queues in state "confirmed".
-    // ccdn-mtb is the [counter]: the same left-overs all in one cycle.
-    misconfigured.foreach(restoreConfig)
-    withClue("precondition: other 'confirmed' reports in the ccdn-rd queue would compete for its single download slot: ") {
-      ccdnRd.queuedReports
-        .filter(r => (r \ "status").asOpt[String].contains("confirmed"))
-        .flatMap(r => (r \ "id").asOpt[String]) shouldBe empty
-    }
-
-    val instances = Seq(ccdnMtb -> "mtb", ccdnRd -> "rd")
-    instances.foreach(_._1.stop())
-    val tans =
-      try instances.map { case (ccdn, useCase) =>
-        val ts = Seq.fill(3)(upload(useCase)._1)
-        ts.foreach(tan => ccdn.enqueueWhileStopped(confirmInPlaceOfZkdk(useCase, tan)))
-        ccdn -> ts
-      }.toMap
-      catch { case e: Throwable => instances.foreach(_._1.start()); throw e }
-
-    val since = tans.keys.map(ccdn => ccdn -> ccdn.start()).toMap
-    for ((ccdn, ts) <- tans; tan <- ts) awaitBackedUpAndFlushed(tan, timeoutMs = 120_000L, ccdn = ccdn)
-
-    val cycles = tans.map { case (ccdn, ts) => ccdn -> ccdn.submissionBackupCycles(since(ccdn), ts) }
-    for ((ccdn, ts) <- tans) withClue(s"${ccdn.service}: no 'Backed up Submission' DEBUG line for some TANs in $ts: ") {
-      cycles(ccdn).keySet shouldBe ts.toSet
-    }
-    withClue(s"ccdn-rd (minNumSubmissionDownloads = 1) should back up each left-over in its own cycle, got TAN -> cycle ${cycles(ccdnRd)}: ") {
-      cycles(ccdnRd).values.toSeq.distinct should have size 3
-    }
-    withClue(s"[counter] ccdn-mtb (minNumSubmissionDownloads = 25) should back up all left-overs in one cycle, got TAN -> cycle ${cycles(ccdnMtb)}: ") {
-      cycles(ccdnMtb).values.toSet should have size 1
-    }
   }
 
   // ─── Deletions ─────────────────────────────────────────────────────────────

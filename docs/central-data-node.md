@@ -66,9 +66,6 @@ Main operational config. Set via env var `CCDN_CONFIG_FILE` (default: `/ccdn_con
 ```
 
 - `polling.period` / `polling.timeUnit` — how often to poll DIP nodes
-- `polling.minNumSubmissionDownloads` (optional, default 25) — per cycle, the zKDK downloads and backs up the submissions
-  of as many `confirmed` reports as were confirmed in that cycle, but at least this many. The system test sets it
-  to 25 for ccdn-mtb and 1 for ccdn-rd (see `CcdnBackupSpec`).
 - `deletionEventPolling.period` / `.timeUnit` (required since central-data-node 4467f4d) — how often to poll DIP nodes
   for DeletionEvents and apply them to the backups. The system test sets 5 SECONDS for both zKDKs.
 - `dataNodeIds` — CCDN's own BfArM-registered node IDs per use case
@@ -101,10 +98,17 @@ The CCDN sets the `Host` header to the site's virtualhost value when making requ
 
 ## Workflow (one polling cycle)
 1. `getApiCompatibleDipSites` — checks `/api/peer2peer/meta-info` on each configured site. Sites with API version < 1.3 (after 2026-06-01) are excluded.
-2. Drain existing queue of `Submitted` reports by calling `confirmSubmissions`.
-3. `pollReports` — for each valid site × use case: `GET /api/{usecase}/peer2peer/mvh/submission-reports?status=Unsubmitted`.
-4. `uploadReports` — upload collected reports to BfArM.
-5. `confirmSubmissions` — for each successfully uploaded report: `POST /api/{usecase}/peer2peer/mvh/submission-reports/{id}:submitted`.
+2. `confirmReportsToSource` — drain reports left in the queue in state `submitted` (service interrupted) by confirming them to their DIP node.
+3. `pollReports` — for each valid site × use case: `GET /api/{usecase}/peer2peer/mvh/submission-reports?status=Unsubmitted`; already queued reports are kept as they are.
+4. `backupSubmissions` — for each `unsubmitted` report with MVH consent: download the submission, store it encrypted in `ccdn.backup` (`submissionbackedup`). On failure the report stays `unsubmitted` and is retried next cycle.
+5. `backupReports` — store the report encrypted in `ccdn.backup` (`reportbackedup`).
+6. `uploadReportsToBfarm` — upload `reportbackedup` reports and `unsubmitted` reports without MVH consent to BfArM (`submitted`).
+7. `confirmReportsToSource` — for each uploaded report: `POST /api/{usecase}/peer2peer/mvh/submission-reports/{id}:submitted` (`confirmed`).
+8. `flushReportQueue` — store `confirmed` reports in `quarter-reports` and remove them from the queue.
+
+Since central-data-node 6e346e0, backups are made before the BfArM upload and the confirmation (the DIP node may delete a
+submission once it has been confirmed), and there is no longer a per-cycle download limit (`polling.minNumSubmissionDownloads`
+was removed; an extra field in `config.json` is ignored).
 
 Since central-data-node 4467f4d, DeletionEvents are no longer synced at the end of this cycle but in a separate
 deletion workflow (`getApiCompatibleDipSites`, then `syncDeletions`) with its own interval (`deletionEventPolling`).

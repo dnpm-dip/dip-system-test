@@ -83,17 +83,6 @@ class CcdnContainer(val service: String) {
   def deletionCyclesSince(since: Instant): Int =
     logsSince(since).linesIterator.count(_.contains("Conducting scheduled deletion workflow"))
 
-  /** For each of `tans` whose submission was backed up since `since` (DEBUG "Backed up Submission …" of
-   *  MongodbLongTermStore), the number of the workflow cycle it happened in, counting from 1.
-   *  Cycles do not overlap: the scheduler awaits each workflow run.
-   */
-  def submissionBackupCycles(since: Instant, tans: Seq[String]): Map[String, Int] =
-    logsSince(since).linesIterator.foldLeft((0, Map.empty[String, Int])) {
-      case ((cycle, found), line) if line.contains("Conducting scheduled reporting workflow") => (cycle + 1, found)
-      case ((cycle, found), line) =>
-        (cycle, found ++ tans.find(tan => line.contains(s"Backed up Submission $tan from site")).map(_ -> cycle))
-    }._2
-
   /** Whether the logs contain the WARN that MongodbLongTermStore emits when skipping an existing backup. */
   def warnedExistingBackup(since: Instant, kind: String, tan: String): Boolean =
     logsSince(since).linesIterator.exists(l =>
